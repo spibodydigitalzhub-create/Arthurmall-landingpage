@@ -1,0 +1,26 @@
+node_modules/
+**/node_modules/
+.next/
+**/.next/
+.env
+.env.*
+!.env.example
+apps/api/data/*.db
+apps/api/data/*.db-*
+npm-debug.log*
+.DS_Store
+
+# Local backups
+*.backup
+*.backup.*
+*.before-*
+*.pre-*
+*.orders-backup
+*.admin-backup
+*.animation-backup
+
+# Local test and maintenance scripts
+apps/api/test-login.js
+apps/api/reset-admin.js
+apps/api/add-admin-products.py
+apps/api/PY
