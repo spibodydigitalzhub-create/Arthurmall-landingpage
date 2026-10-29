@@ -12,6 +12,8 @@ const API = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:4000";
 export default function Home() {
   const [quantity, setQuantity] = useState(1);
   const [featuredProduct, setFeaturedProduct] = useState(null);
+  const [products, setProducts] = useState([]);
+  const [selectedProduct, setSelectedProduct] = useState(null);
   const [customer, setCustomer] = useState({
     name: "",
     phone: "",
@@ -39,8 +41,15 @@ export default function Home() {
           available.find(product => product.image_url) ||
           available[0];
 
+        if (!cancelled) {
+          setProducts(available);
+          if (featured) {
+            setFeaturedProduct(featured);
+            setSelectedProduct(current => current || featured);
+          }
+        }
+
         if (!cancelled && featured) {
-  setFeaturedProduct(featured);
 
   if (typeof window !== "undefined" &&
       typeof window.fbq === "function") {
@@ -107,13 +116,28 @@ export default function Home() {
   const productId = Number(featuredProduct?.id ?? 1);
   const productImage = featuredProduct?.image_url || "";
 
+  const orderProductData = selectedProduct || featuredProduct;
+  const orderPrice = Number(orderProductData?.price ?? price);
+  const orderProductName = orderProductData
+    ? `${orderProductData.brand || ""} ${orderProductData.name}`.trim()
+    : productName;
+  const orderProductId = Number(orderProductData?.id ?? productId);
+
+  function chooseProduct(product) {
+    setSelectedProduct(product);
+    setQuantity(1);
+    document.getElementById("order")?.scrollIntoView({
+      behavior: "smooth"
+    });
+  }
+
   async function orderProduct(event) {
     event.preventDefault();
 trackMetaEvent("InitiateCheckout", {
-  content_ids: [String(productId)],
-  content_name: productName,
+  content_ids: [String(orderProductId)],
+  content_name: orderProductName,
   content_type: "product",
-  value: price * Number(quantity),
+  value: orderPrice * Number(quantity),
   currency: "GHS",
   num_items: Number(quantity)
 });
@@ -138,7 +162,7 @@ trackMetaEvent("InitiateCheckout", {
             customerName: customer.name,
             customerPhone: customer.phone,
             deliveryAddress: customer.address,
-            productId,
+            productId: orderProductId,
             quantity: Number(quantity),
           }),
         }
@@ -154,8 +178,8 @@ trackMetaEvent("InitiateCheckout", {
 
       const order = result.order;
 trackMetaEvent("Purchase", {
-  content_ids: [String(productId)],
-  content_name: productName,
+  content_ids: [String(orderProductId)],
+  content_name: orderProductName,
   content_type: "product",
   value: Number(order.totalPrice),
   currency: "GHS",
@@ -427,6 +451,82 @@ trackMetaEvent("Purchase", {
         </article>
       </section>
 
+      <section className="catalogue-section" id="catalogue">
+        <div className="section-heading catalogue-heading">
+          <div>
+            <div className="eyebrow">
+              <span></span> EXPLORE OUR COLLECTION
+            </div>
+            <h2>Shop all <span>products.</span></h2>
+            <p className="catalogue-subtitle">
+              Discover our available products and choose what you love.
+            </p>
+          </div>
+          <span className="product-count">
+            {products.length} {products.length === 1 ? "PRODUCT" : "PRODUCTS"}
+          </span>
+        </div>
+
+        {products.length > 0 ? (
+          <div className="catalogue-grid">
+            {products.map((product) => {
+              const name = `${product.brand || ""} ${product.name || ""}`.trim();
+
+              return (
+                <article className="catalogue-card" key={product.id}>
+                  <div className="catalogue-image-wrap">
+                    {product.image_url ? (
+                      <img
+                        className="catalogue-image"
+                        src={product.image_url}
+                        alt={name || "Product"}
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div className="catalogue-no-image">
+                        <span>AM</span>
+                        <small>Product image coming soon</small>
+                      </div>
+                    )}
+                    <span className="catalogue-stock">
+                      In stock: {Number(product.stock)}
+                    </span>
+                  </div>
+
+                  <div className="catalogue-card-body">
+                    {product.category && (
+                      <span className="catalogue-category">{product.category}</span>
+                    )}
+                    <h3>{name || "Unnamed product"}</h3>
+                    <p className="catalogue-description">
+                      {product.description ||
+                        "Quality technology for your everyday needs."}
+                    </p>
+                    <div className="catalogue-card-bottom">
+                      <strong>
+                        GH₵ {Number(product.price).toLocaleString()}
+                      </strong>
+                      <button
+                        type="button"
+                        className="button button-dark catalogue-order-button"
+                        onClick={() => chooseProduct(product)}
+                      >
+                        Order this product <span>↗</span>
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="catalogue-empty">
+            <h3>New products coming soon</h3>
+            <p>We're preparing our collection. Please check back shortly.</p>
+          </div>
+        )}
+      </section>
+
       <section className="order-section" id="order">
         <div className="order-intro">
           <div className="eyebrow">
@@ -465,11 +565,11 @@ trackMetaEvent("Purchase", {
           <div className="selected-product">
             <div className="mini-phone">A</div>
             <div className="selected-details">
-              <strong>{productName}</strong>
-              <small>Featured smartphone</small>
+              <strong>{orderProductName}</strong>
+              <small>Selected product</small>
             </div>
             <strong className="selected-price">
-              GH₵ {price.toLocaleString()}
+              GH₵ {orderPrice.toLocaleString()}
             </strong>
           </div>
 
@@ -535,7 +635,7 @@ trackMetaEvent("Purchase", {
 
           <div className="total-row">
             <span>Order total</span>
-            <strong>GH₵ {(price * quantity).toLocaleString()}</strong>
+            <strong>GH₵ {(orderPrice * quantity).toLocaleString()}</strong>
           </div>
 
           <button type="submit" className="button button-green submit-button">
