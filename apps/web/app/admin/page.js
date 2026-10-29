@@ -1,67 +1,157 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:4000";
+const API =
+  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:4000";
 
-const money = (value) =>
-  new Intl.NumberFormat("en-GH", {
+const CLOUD_NAME = "pdp9ap6f";
+const UPLOAD_PRESET = "Spibody";
+
+const STATUSES = [
+  "Pending",
+  "Confirmed",
+  "Processing",
+  "Shipped",
+  "Delivered",
+  "Cancelled",
+];
+
+const EMPTY_PRODUCT = {
+  name: "",
+  brand: "",
+  model: "",
+  category: "Smartphones",
+  price: "",
+  stock: "",
+  image_url: "",
+  description: "",
+  specifications: '{\n  "display": "",\n  "battery": ""\n}',
+};
+
+function money(value) {
+  return new Intl.NumberFormat("en-GH", {
     style: "currency",
     currency: "GHS",
-    maximumFractionDigits: 2,
-  }).format(Number(value || 0));
+    maximumFractionDigits: 0,
+  }).format(Number(value) || 0);
+}
 
-export default function AdminDashboard() {
+function date(value) {
+  if (!value) return "—";
+  return new Date(value).toLocaleDateString("en-GH", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function Status({ value }) {
+  const key = String(value || "Pending").toLowerCase();
+
+  return (
+    <span className={`am-status am-status-${key}`}>
+      {value || "Pending"}
+    </span>
+  );
+}
+
+function Metric({ label, value, detail, icon }) {
+  return (
+    <article className="am-metric">
+      <div className="am-metric-top">
+        <span>{label}</span>
+        <span className="am-metric-icon">{icon}</span>
+      </div>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </article>
+  );
+}
+
+export default function AdminPage() {
   const [token, setToken] = useState("");
-  const [username, setUsername] = useState("admin");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [stats, setStats] = useState(null);
+
+  const [stats, setStats] = useState({});
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
+
   const [section, setSection] = useState("Overview");
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
-  async function request(path, options = {}, auth = token) {
-    const response = await fetch(`${API}${path}`, {
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...(auth ? { Authorization: `Bearer ${auth}` } : {}),
-        ...options.headers,
-      },
-    });
+  const [showProductForm, setShowProductForm] = useState(false);
+  const [editingProduct, setEditingProduct] = useState(null);
+  const [productForm, setProductForm] = useState(EMPTY_PRODUCT);
+  const [search, setSearch] = useState("");
 
-    const data = await response.json();
+  const [orderSearch, setOrderSearch] = useState("");
+  const [productFilter, setProductFilter] = useState("All");
 
-    if (!response.ok || data.success === false) {
-      throw new Error(data.message || "Request failed.");
-    }
+  const request = useCallback(
+    async (path, options = {}, auth = true) => {
+      const headers = {
+        ...(options.headers || {}),
+      };
 
-    return data;
-  }
+      if (!(options.body instanceof FormData)) {
+        headers["Content-Type"] = "application/json";
+      }
 
-  async function loadDashboard(auth = token) {
+      if (auth && token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API}${path}`, {
+        ...options,
+        headers,
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || data.success === false) {
+        throw new Error(
+          data.message || `Request failed (${response.status})`
+        );
+      }
+
+      return data;
+    },
+    [token]
+  );
+
+  const loadDashboard = useCallback(async () => {
+    if (!token) return;
+
     setLoading(true);
     setError("");
 
     try {
-      const [s, p, o] = await Promise.all([
-        request("/api/admin/stats", {}, auth),
-        request("/api/admin/products", {}, auth),
-        request("/api/admin/orders", {}, auth),
+      const [statsData, productData, orderData] = await Promise.all([
+        request("/api/admin/stats"),
+        request("/api/admin/products"),
+        request("/api/admin/orders"),
       ]);
 
-      setStats(s.stats);
-      setProducts(p.products || []);
-      setOrders(o.orders || []);
+      setStats(statsData.stats || {});
+      setProducts(productData.products || []);
+      setOrders(orderData.orders || []);
     } catch (err) {
-      setError(err.message || "Unable to load dashboard.");
+      setError(err.message);
     } finally {
       setLoading(false);
     }
-  }
+  }, [token, request]);
+
+  useEffect(() => {
+    if (token) loadDashboard();
+  }, [token, loadDashboard]);
 
   async function login(event) {
     event.preventDefault();
@@ -69,24 +159,23 @@ export default function AdminDashboard() {
     setError("");
 
     try {
-      const result = await request(
+      const data = await request(
         "/api/admin/login",
         {
           method: "POST",
           body: JSON.stringify({ username, password }),
         },
-        ""
+        false
       );
 
-      if (!result.token) {
-        throw new Error("Login succeeded but no token was returned.");
+      if (!data.token) {
+        throw new Error("The server did not return an admin token.");
       }
 
-      setToken(result.token);
+      setToken(data.token);
       setPassword("");
-      await loadDashboard(result.token);
     } catch (err) {
-      setError(err.message || "Login failed.");
+      setError(err.message);
     } finally {
       setLoading(false);
     }
@@ -94,123 +183,396 @@ export default function AdminDashboard() {
 
   function logout() {
     setToken("");
-    setStats(null);
+    setStats({});
     setProducts([]);
     setOrders([]);
     setSection("Overview");
-    setError("");
     setNotice("");
+    setError("");
   }
 
-  async function changeStatus(id, status) {
+  function openNewProduct() {
+    setEditingProduct(null);
+    setProductForm({ ...EMPTY_PRODUCT });
+    setShowProductForm(true);
+    setError("");
+  }
+
+  function openEditProduct(product) {
+    setEditingProduct(product);
+
+    setProductForm({
+      name: product.name || "",
+      brand: product.brand || "",
+      model: product.model || "",
+      category: product.category || "Smartphones",
+      price: String(product.price ?? ""),
+      stock: String(product.stock ?? ""),
+      image_url: product.image_url || "",
+      description: product.description || "",
+      specifications: JSON.stringify(
+        product.specifications || {},
+        null,
+        2
+      ),
+    });
+
+    setShowProductForm(true);
+    setError("");
+  }
+
+  function updateProductField(field, value) {
+    setProductForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
+
+  const filteredProducts = useMemo(() => {
+    const query = search.trim().toLowerCase();
+
+    return products.filter((product) => {
+      const matchesSearch =
+        !query ||
+        [
+          product.name,
+          product.brand,
+          product.model,
+          product.category,
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(query);
+
+      const matchesFilter =
+        productFilter === "All" ||
+        (productFilter === "Active" && Number(product.active) === 1) ||
+        (productFilter === "Inactive" && Number(product.active) === 0) ||
+        (productFilter === "Low stock" &&
+          Number(product.active) === 1 &&
+          Number(product.stock) <= 5);
+
+      return matchesSearch && matchesFilter;
+    });
+  }, [products, search, productFilter]);
+
+  const filteredOrders = useMemo(() => {
+    const query = orderSearch.trim().toLowerCase();
+
+    return orders.filter((order) =>
+      [
+        order.id,
+        order.customer_name,
+        order.customer_phone,
+        order.product_name,
+        order.status,
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(query)
+    );
+  }, [orders, orderSearch]);
+
+
+  async function uploadImage(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) return;
+
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+
+    if (!allowedTypes.includes(file.type)) {
+      setError("Choose a JPG, PNG or WEBP image.");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setError("Image must be 5MB or smaller.");
+      return;
+    }
+
+    setUploading(true);
     setError("");
     setNotice("");
 
     try {
-      await request(`/api/admin/orders/${id}/status`, {
-        method: "PATCH",
-        body: JSON.stringify({ status }),
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("upload_preset", UPLOAD_PRESET);
+
+      const response = await fetch(
+        `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`,
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok || !result.secure_url) {
+        throw new Error(
+          result.error?.message || "Image upload failed."
+        );
+      }
+
+      updateProductField("image_url", result.secure_url);
+      setNotice("Product image uploaded successfully.");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function saveProduct(event) {
+    event.preventDefault();
+
+    if (saving || uploading) return;
+
+    setError("");
+    setNotice("");
+
+    const price = Number(productForm.price);
+    const stock = Number(productForm.stock);
+
+    if (
+      !Number.isSafeInteger(price) ||
+      price < 0 ||
+      !Number.isSafeInteger(stock) ||
+      stock < 0
+    ) {
+      setError("Price and stock must be valid whole numbers.");
+      return;
+    }
+
+    let specifications;
+
+    try {
+      specifications = JSON.parse(
+        productForm.specifications || "{}"
+      );
+
+      if (
+        !specifications ||
+        typeof specifications !== "object" ||
+        Array.isArray(specifications)
+      ) {
+        throw new Error("Specifications must be a JSON object.");
+      }
+    } catch {
+      setError("Enter valid JSON for product specifications.");
+      return;
+    }
+
+    const payload = {
+      name: productForm.name.trim(),
+      brand: productForm.brand.trim(),
+      model: productForm.model.trim(),
+      category: productForm.category.trim() || "Smartphones",
+      price,
+      stock,
+      image_url: productForm.image_url.trim(),
+      description: productForm.description.trim(),
+      specifications,
+    };
+
+    setSaving(true);
+
+    try {
+      const path = editingProduct
+        ? `/api/admin/products/${editingProduct.id}`
+        : "/api/admin/products";
+
+      await request(path, {
+        method: editingProduct ? "PUT" : "POST",
+        body: JSON.stringify(payload),
       });
 
-      setNotice(`Order #${id} updated to ${status}.`);
+      setShowProductForm(false);
+      setEditingProduct(null);
+      setProductForm({ ...EMPTY_PRODUCT });
+
+      setNotice(
+        editingProduct
+          ? "Product updated successfully."
+          : "Product added successfully."
+      );
+
+      await loadDashboard();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deactivateProduct(product) {
+    const confirmed = window.confirm(
+      `Deactivate "${product.name}"? It will no longer appear in the public catalogue.`
+    );
+
+    if (!confirmed) return;
+
+    setError("");
+    setNotice("");
+
+    try {
+      await request(`/api/admin/products/${product.id}`, {
+        method: "DELETE",
+      });
+
+      setNotice("Product deactivated successfully.");
       await loadDashboard();
     } catch (err) {
       setError(err.message);
     }
   }
 
-  useEffect(() => {
-    if (token) loadDashboard(token);
-    // Initial load only when the login state changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  async function updateStock(product, value) {
+    const stock = Number(value);
+
+    if (!Number.isSafeInteger(stock) || stock < 0) {
+      setError("Enter a valid non-negative stock quantity.");
+      return;
+    }
+
+    setError("");
+    setNotice("");
+
+    try {
+      await request(
+        `/api/admin/products/${product.id}/stock`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ stock }),
+        }
+      );
+
+      setNotice(`Stock updated for ${product.name}.`);
+      await loadDashboard();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function changeStatus(orderId, status) {
+    setError("");
+    setNotice("");
+
+    try {
+      await request(`/api/admin/orders/${orderId}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      });
+
+      setNotice(`Order #${orderId} updated to ${status}.`);
+      await loadDashboard();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
 
   if (!token) {
     return (
       <main className="am-login">
         <form className="am-login-card" onSubmit={login}>
-          <div className="am-brand-mark">A</div>
+          <div className="am-brand-mark">A<span>M</span></div>
+
           <p className="am-eyebrow">ARTHUR MALL</p>
           <h1>Admin portal</h1>
           <p className="am-muted">
-            Sign in to manage products, inventory and customer orders.
+            Sign in to manage your store.
           </p>
 
-          {error && <div className="am-alert">{error}</div>}
+          {error && (
+            <div className="am-alert am-alert-error">{error}</div>
+          )}
 
           <label>
             Username
             <input
+              required
+              autoComplete="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              autoComplete="username"
-              required
+              placeholder="Administrator username"
             />
           </label>
 
           <label>
             Password
             <input
+              required
               type="password"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-              required
+              placeholder="Enter your password"
             />
           </label>
 
           <button className="am-primary" disabled={loading}>
-            {loading ? "Signing in…" : "Sign in securely →"}
+            {loading ? "Signing in..." : "Sign in to dashboard"}
           </button>
 
-          <p className="am-small">
-            Your administrator credentials are verified by the API.
-          </p>
+          <small className="am-small">
+            Secure administrator access
+          </small>
         </form>
-
-        <style jsx>{styles}</style>
       </main>
     );
   }
 
-  const navigation = [
-    ["Overview", "▦"],
-    ["Products", "□"],
-    ["Orders", "⇄"],
-  ];
 
   return (
-    <main className="am-app">
+    <main className="am-dashboard">
       <aside className="am-sidebar">
-        <div className="am-logo">
-          <span className="am-brand-mark">A</span>
-          <div>
+        <a href="/admin" className="am-sidebar-brand">
+          <span className="am-brand-mark">A<span>M</span></span>
+          <span>
             <strong>ARTHUR MALL</strong>
-            <small>COMMERCE CONTROL</small>
-          </div>
-        </div>
+            <small>STORE MANAGEMENT</small>
+          </span>
+        </a>
 
-        <p className="am-nav-label">WORKSPACE</p>
+        <div className="am-sidebar-label">WORKSPACE</div>
 
-        {navigation.map(([name, icon]) => (
-          <button
-            key={name}
-            className={`am-nav ${section === name ? "selected" : ""}`}
-            onClick={() => setSection(name)}
-          >
-            <span>{icon}</span> {name}
-            {name === "Orders" && orders.length > 0 && (
-              <span className="am-count">{orders.length}</span>
-            )}
-          </button>
-        ))}
+        <nav className="am-navigation">
+          {[
+            ["Overview", "▦"],
+            ["Products", "◇"],
+            ["Orders", "⇄"],
+          ].map(([name, icon]) => (
+            <button
+              key={name}
+              className={section === name ? "active" : ""}
+              onClick={() => {
+                setSection(name);
+                setError("");
+              }}
+            >
+              <span>{icon}</span>
+              {name}
+              {name === "Orders" && stats.pending_orders > 0 && (
+                <b>{stats.pending_orders}</b>
+              )}
+            </button>
+          ))}
+        </nav>
 
         <div className="am-sidebar-bottom">
-          <div className="am-online">
-            <span /> API connected
+          <div className="am-admin-profile">
+            <span className="am-avatar">A</span>
+            <span>
+              <strong>Administrator</strong>
+              <small>Store manager</small>
+            </span>
           </div>
+
           <button className="am-logout" onClick={logout}>
-            ↪ Sign out
+            ↗ Sign out
           </button>
         </div>
       </aside>
@@ -218,411 +580,582 @@ export default function AdminDashboard() {
       <section className="am-main">
         <header className="am-topbar">
           <div>
-            <p className="am-eyebrow">ARTHUR MALL / ADMIN</p>
+            <p className="am-eyebrow">ARTHUR MALL / MANAGEMENT</p>
             <h1>{section}</h1>
           </div>
 
-          <button
-            className="am-refresh"
-            disabled={loading}
-            onClick={() => loadDashboard()}
-          >
-            ↻ Refresh
-          </button>
+          <div className="am-topbar-actions">
+            <span className="am-live-indicator">
+              <i /> Store dashboard
+            </span>
+            <button
+              className="am-refresh"
+              onClick={loadDashboard}
+              disabled={loading}
+            >
+              ↻ <span>Refresh</span>
+            </button>
+          </div>
         </header>
 
-        {error && <div className="am-alert">{error}</div>}
-        {notice && <div className="am-success">{notice}</div>}
-
-        {loading && <p className="am-muted">Loading your store data…</p>}
-
-        {section === "Overview" && stats && (
-          <>
-            <div className="am-welcome">
-              <div>
-                <p className="am-eyebrow">STORE PERFORMANCE</p>
-                <h2>Your business, at a glance.</h2>
-                <p>Live information from your store database.</p>
-              </div>
-              <span className="am-welcome-icon">↗</span>
+        <div className="am-content">
+          {error && (
+            <div className="am-alert am-alert-error">
+              <span>{error}</span>
+              <button onClick={() => setError("")}>×</button>
             </div>
+          )}
 
-            <div className="am-metrics">
-              <Metric
-                label="Total orders"
-                value={stats.total_orders}
-                icon="▤"
-                note={`${stats.pending_orders} pending`}
-              />
-              <Metric
-                label="Delivered sales"
-                value={money(stats.delivered_sales)}
-                icon="₵"
-                note="Delivered orders only"
-              />
-              <Metric
-                label="Active products"
-                value={stats.active_products}
-                icon="□"
-                note={`${stats.total_products} total products`}
-              />
-              <Metric
-                label="Units in stock"
-                value={stats.units_in_stock}
-                icon="▥"
-                note={`${stats.low_stock} low-stock products`}
-              />
+          {notice && (
+            <div className="am-alert am-alert-success">
+              <span>{notice}</span>
+              <button onClick={() => setNotice("")}>×</button>
             </div>
+          )}
 
-            <div className="am-columns">
-              <div className="am-panel">
-                <div className="am-panel-heading">
-                  <div>
-                    <h3>Recent orders</h3>
-                    <p>Latest customer purchases</p>
-                  </div>
-                  <button
-                    className="am-text-button"
-                    onClick={() => setSection("Orders")}
-                  >
-                    View all →
-                  </button>
+          {loading && (
+            <div className="am-loading">
+              <span className="am-spinner" />
+              Loading store information...
+            </div>
+          )}
+
+          {section === "Overview" && (
+            <>
+              <div className="am-welcome">
+                <div>
+                  <span className="am-welcome-tag">YOUR STORE AT A GLANCE</span>
+                  <h2>Welcome back.</h2>
+                  <p>
+                    Here's what's happening with your store today.
+                  </p>
                 </div>
+                <button
+                  className="am-primary"
+                  onClick={() => {
+                    setSection("Products");
+                    openNewProduct();
+                  }}
+                >
+                  + Add product
+                </button>
+              </div>
 
-                {orders.slice(0, 5).length === 0 ? (
-                  <p className="am-empty">No orders yet.</p>
-                ) : (
-                  orders.slice(0, 5).map((order) => (
-                    <div className="am-order-row" key={order.id}>
-                      <div className="am-order-avatar">
-                        {(order.customer_name || "C")[0].toUpperCase()}
-                      </div>
-                      <div className="am-order-details">
-                        <strong>{order.customer_name}</strong>
-                        <small>
-                          #{order.id} · {order.product_name || "Product"}
-                        </small>
-                      </div>
-                      <div className="am-order-total">
-                        <strong>{money(order.total_price)}</strong>
-                        <Status value={order.status} />
-                      </div>
+              <div className="am-metrics-grid">
+                <Metric
+                  label="Total orders"
+                  value={stats.total_orders ?? 0}
+                  detail={`${stats.pending_orders ?? 0} awaiting attention`}
+                  icon="⇄"
+                />
+                <Metric
+                  label="Delivered sales"
+                  value={money(stats.delivered_sales)}
+                  detail={`${stats.delivered_orders ?? 0} delivered orders`}
+                  icon="₵"
+                />
+                <Metric
+                  label="Active products"
+                  value={stats.active_products ?? 0}
+                  detail={`${stats.total_products ?? 0} total products`}
+                  icon="◇"
+                />
+                <Metric
+                  label="Units in stock"
+                  value={stats.units_in_stock ?? 0}
+                  detail={`${stats.low_stock ?? 0} products running low`}
+                  icon="▤"
+                />
+              </div>
+
+              <div className="am-overview-grid">
+                <section className="am-panel">
+                  <div className="am-panel-heading">
+                    <div>
+                      <p className="am-eyebrow">LATEST ACTIVITY</p>
+                      <h3>Recent orders</h3>
                     </div>
-                  ))
-                )}
-              </div>
-
-              <div className="am-panel am-stock-panel">
-                <div className="am-panel-heading">
-                  <div>
-                    <h3>Inventory watch</h3>
-                    <p>Products needing attention</p>
+                    <button
+                      className="am-text-button"
+                      onClick={() => setSection("Orders")}
+                    >
+                      View all →
+                    </button>
                   </div>
-                </div>
 
-                {products.filter((p) => Number(p.stock) <= 5 && p.active)
-                  .length === 0 ? (
-                  <p className="am-empty">All active products have more than 5 units.</p>
-                ) : (
-                  products
-                    .filter((p) => Number(p.stock) <= 5 && p.active)
-                    .map((p) => (
-                      <div className="am-stock-row" key={p.id}>
-                        <div>
-                          <strong>{p.name}</strong>
-                          <small>{p.brand}</small>
+                  {orders.length === 0 ? (
+                    <div className="am-empty-state">
+                      <span>⇄</span>
+                      <h3>No orders yet</h3>
+                      <p>New customer orders will appear here.</p>
+                    </div>
+                  ) : (
+                    <div className="am-recent-list">
+                      {orders.slice(0, 6).map((order) => (
+                        <div className="am-recent-order" key={order.id}>
+                          <div className="am-order-avatar">
+                            {(order.customer_name || "C")
+                              .charAt(0)
+                              .toUpperCase()}
+                          </div>
+                          <div className="am-order-info">
+                            <strong>{order.customer_name}</strong>
+                            <small>
+                              #{order.id} · {order.product_name || "Product"}
+                            </small>
+                          </div>
+                          <div className="am-order-value">
+                            <strong>{money(order.total_price)}</strong>
+                            <Status value={order.status} />
+                          </div>
                         </div>
-                        <span className="am-low-stock">
-                          {p.stock} left
-                        </span>
-                      </div>
-                    ))
-                )}
-              </div>
-            </div>
-          </>
-        )}
+                      ))}
+                    </div>
+                  )}
+                </section>
 
-        {section === "Products" && (
-          <div className="am-panel">
-            <div className="am-panel-heading">
-              <div>
-                <h3>Product inventory</h3>
-                <p>{products.length} products in your catalogue</p>
-              </div>
-            </div>
+                <section className="am-panel">
+                  <div className="am-panel-heading">
+                    <div>
+                      <p className="am-eyebrow">INVENTORY HEALTH</p>
+                      <h3>Stock overview</h3>
+                    </div>
+                    <span className="am-stock-icon">▤</span>
+                  </div>
 
-            <div className="am-table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>PRODUCT</th>
-                    <th>PRICE</th>
-                    <th>STOCK</th>
-                    <th>STATUS</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {products.map((p) => (
-                    <tr key={p.id}>
-                      <td>
-                        <strong>{p.name}</strong>
-                        <small>{p.brand} · {p.model}</small>
-                      </td>
-                      <td>{money(p.price)}</td>
-                      <td>{p.stock}</td>
-                      <td>
-                        <Status value={p.active ? "Active" : "Inactive"} />
-                      </td>
-                    </tr>
+                  <div className="am-stock-summary">
+                    <strong>{stats.units_in_stock ?? 0}</strong>
+                    <span>Available units</span>
+                  </div>
+
+                  <div className="am-stock-warning">
+                    <span>!</span>
+                    <div>
+                      <strong>{stats.low_stock ?? 0} low-stock products</strong>
+                      <p>Products with five or fewer units remaining.</p>
+                    </div>
+                  </div>
+
+                  <button
+                    className="am-secondary-button am-full-button"
+                    onClick={() => setSection("Products")}
+                  >
+                    Manage inventory →
+                  </button>
+                </section>
+              </div>
+            </>
+          )}
+
+          {section === "Products" && (
+            <section className="am-panel">
+              <div className="am-panel-heading am-products-heading">
+                <div>
+                  <p className="am-eyebrow">CATALOGUE MANAGEMENT</p>
+                  <h3>Your products</h3>
+                  <p>Manage products, prices and stock levels.</p>
+                </div>
+                <button className="am-primary" onClick={openNewProduct}>
+                  + Add product
+                </button>
+              </div>
+
+              <div className="am-toolbar">
+                <input
+                  className="am-search"
+                  type="search"
+                  placeholder="Search products..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+
+                <select
+                  className="am-filter"
+                  value={productFilter}
+                  onChange={(e) => setProductFilter(e.target.value)}
+                >
+                  {["All", "Active", "Inactive", "Low stock"].map((item) => (
+                    <option key={item}>{item}</option>
                   ))}
-                </tbody>
-              </table>
-            </div>
-
-            <p className="am-muted am-small">
-              This first version displays your live catalogue. We’ll add the
-              product editor and creation form next.
-            </p>
-          </div>
-        )}
-
-        {section === "Orders" && (
-          <div className="am-panel">
-            <div className="am-panel-heading">
-              <div>
-                <h3>Customer orders</h3>
-                <p>Review purchases and update order status.</p>
+                </select>
               </div>
-            </div>
 
-            {orders.length === 0 ? (
-              <p className="am-empty">No customer orders yet.</p>
-            ) : (
-              <div className="am-table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>ORDER / CUSTOMER</th>
-                      <th>PRODUCT</th>
-                      <th>TOTAL</th>
-                      <th>STATUS</th>
-                      <th>UPDATE</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {orders.map((order) => (
-                      <tr key={order.id}>
-                        <td>
-                          <strong>#{order.id} · {order.customer_name}</strong>
-                          <small>{order.customer_phone}</small>
-                          <small>{order.delivery_address}</small>
-                        </td>
-                        <td>
-                          {order.product_name || "Product"}
-                          <small>Quantity: {order.quantity}</small>
-                        </td>
-                        <td>{money(order.total_price)}</td>
-                        <td><Status value={order.status} /></td>
-                        <td>
-                          <select
-                            className="am-status-select"
-                            value={order.status}
-                            onChange={(e) =>
-                              changeStatus(order.id, e.target.value)
+              {filteredProducts.length === 0 ? (
+                <div className="am-empty-state">
+                  <span>◇</span>
+                  <h3>No products found</h3>
+                  <p>Try another search or add a new product.</p>
+                </div>
+              ) : (
+                <div className="am-product-grid">
+                  {filteredProducts.map((product) => (
+                    <article className="am-product-card" key={product.id}>
+                      <div className="am-product-image">
+                        {product.image_url ? (
+                          <img
+                            src={product.image_url}
+                            alt={product.name}
+                          />
+                        ) : (
+                          <span>◇</span>
+                        )}
+                        <Status
+                          value={
+                            Number(product.active) === 1
+                              ? "Active"
+                              : "Inactive"
+                          }
+                        />
+                      </div>
+
+                      <div className="am-product-details">
+                        <small>
+                          {product.brand} · {product.category}
+                        </small>
+                        <h4>{product.name}</h4>
+                        <p>{product.model}</p>
+
+                        <div className="am-product-price-row">
+                          <strong>{money(product.price)}</strong>
+                          <span
+                            className={
+                              Number(product.stock) <= 5
+                                ? "am-stock-low"
+                                : "am-stock-good"
                             }
-                            disabled={loading}
-                            aria-label={`Update order ${order.id} status`}
                           >
-                            {[
-                              "Pending",
-                              "Confirmed",
-                              "Processing",
-                              "Shipped",
-                              "Delivered",
-                              "Cancelled",
-                            ].map((status) => (
-                              <option key={status} value={status}>
-                                {status}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                            {product.stock} in stock
+                          </span>
+                        </div>
+
+                        <div className="am-product-actions">
+                          <button
+                            className="am-secondary-button"
+                            onClick={() => openEditProduct(product)}
+                          >
+                            Edit
+                          </button>
+
+                          <button
+                            className="am-danger-button"
+                            onClick={() => deactivateProduct(product)}
+                            disabled={Number(product.active) !== 1}
+                          >
+                            Deactivate
+                          </button>
+                        </div>
+
+                        <label className="am-stock-editor">
+                          Update stock
+                          <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            defaultValue={product.stock}
+                            key={`${product.id}-${product.stock}`}
+                            onBlur={(e) => {
+                              if (String(product.stock) !== e.target.value) {
+                                updateStock(product, e.target.value);
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") e.currentTarget.blur();
+                            }}
+                          />
+                        </label>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+
+          {section === "Orders" && (
+            <section className="am-panel">
+              <div className="am-panel-heading">
+                <div>
+                  <p className="am-eyebrow">SALES MANAGEMENT</p>
+                  <h3>Customer orders</h3>
+                  <p>Review purchases and update order statuses.</p>
+                </div>
               </div>
-            )}
-          </div>
-        )}
+
+              <div className="am-toolbar">
+                <input
+                  className="am-search"
+                  type="search"
+                  placeholder="Search orders, customers or phone..."
+                  value={orderSearch}
+                  onChange={(e) => setOrderSearch(e.target.value)}
+                />
+              </div>
+
+              {filteredOrders.length === 0 ? (
+                <div className="am-empty-state">
+                  <span>⇄</span>
+                  <h3>No orders found</h3>
+                  <p>Customer purchases will appear here.</p>
+                </div>
+              ) : (
+                <div className="am-table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>ORDER / CUSTOMER</th>
+                        <th>PRODUCT</th>
+                        <th>DATE</th>
+                        <th>TOTAL</th>
+                        <th>STATUS</th>
+                        <th>UPDATE</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredOrders.map((order) => (
+                        <tr key={order.id}>
+                          <td>
+                            <strong>
+                              #{order.id} · {order.customer_name}
+                            </strong>
+                            <small>{order.customer_phone}</small>
+                            <small>{order.delivery_address}</small>
+                          </td>
+                          <td>
+                            {order.product_name || "Product"}
+                            <small>
+                              {order.product_brand} · {order.product_model}
+                            </small>
+                            <small>Quantity: {order.quantity}</small>
+                          </td>
+                          <td>{date(order.created_at)}</td>
+                          <td>
+                            <strong>{money(order.total_price)}</strong>
+                          </td>
+                          <td>
+                            <Status value={order.status} />
+                          </td>
+                          <td>
+                            <select
+                              className="am-status-select"
+                              value={order.status}
+                              onChange={(e) =>
+                                changeStatus(order.id, e.target.value)
+                              }
+                            >
+                              {STATUSES.map((status) => (
+                                <option key={status} value={status}>
+                                  {status}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          )}
+        </div>
 
         <footer className="am-footer">
-          <span>ARTHUR MALL © {new Date().getFullYear()}</span>
-          <span>Store management · Ghana</span>
+          <span>© {new Date().getFullYear()} ARTHUR MALL</span>
+          <span>STORE MANAGEMENT SYSTEM</span>
         </footer>
       </section>
 
-      <style jsx>{styles}</style>
+      {showProductForm && (
+        <div
+          className="am-modal-backdrop"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget && !saving && !uploading) {
+              setShowProductForm(false);
+            }
+          }}
+        >
+          <form className="am-modal" onSubmit={saveProduct}>
+            <div className="am-form-heading">
+              <div>
+                <p className="am-eyebrow">PRODUCT MANAGEMENT</p>
+                <h2>{editingProduct ? "Edit product" : "Add new product"}</h2>
+                <p>Enter product information and manage its image.</p>
+              </div>
+
+              <button
+                type="button"
+                className="am-close"
+                onClick={() => setShowProductForm(false)}
+                disabled={saving || uploading}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="am-form-grid">
+              <label>
+                Product name *
+                <input
+                  required
+                  maxLength={150}
+                  value={productForm.name}
+                  onChange={(e) => updateProductField("name", e.target.value)}
+                  placeholder="e.g. Xiaomi Redmi 14C"
+                />
+              </label>
+
+              <label>
+                Brand *
+                <input
+                  required
+                  maxLength={80}
+                  value={productForm.brand}
+                  onChange={(e) => updateProductField("brand", e.target.value)}
+                  placeholder="e.g. Xiaomi"
+                />
+              </label>
+
+              <label>
+                Model *
+                <input
+                  required
+                  maxLength={100}
+                  value={productForm.model}
+                  onChange={(e) => updateProductField("model", e.target.value)}
+                  placeholder="e.g. Redmi 14C"
+                />
+              </label>
+
+              <label>
+                Category
+                <input
+                  maxLength={80}
+                  value={productForm.category}
+                  onChange={(e) => updateProductField("category", e.target.value)}
+                  placeholder="Smartphones"
+                />
+              </label>
+
+              <label>
+                Price (GH₵) *
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  required
+                  value={productForm.price}
+                  onChange={(e) => updateProductField("price", e.target.value)}
+                />
+              </label>
+
+              <label>
+                Stock quantity *
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  required
+                  value={productForm.stock}
+                  onChange={(e) => updateProductField("stock", e.target.value)}
+                />
+              </label>
+
+              <div className="am-image-uploader">
+                <span className="am-field-title">Product image</span>
+
+                <div className="am-image-preview">
+                  {productForm.image_url ? (
+                    <img
+                      src={productForm.image_url}
+                      alt="Product preview"
+                    />
+                  ) : (
+                    <div>
+                      <span>＋</span>
+                      <small>Image preview</small>
+                    </div>
+                  )}
+                </div>
+
+                <label className="am-upload-button">
+                  {uploading ? "Uploading image..." : "↑ Choose image"}
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={uploadImage}
+                    disabled={uploading || saving}
+                  />
+                </label>
+
+                <small>JPG, PNG or WEBP · Maximum 5MB</small>
+
+                <label className="am-url-label">
+                  Or paste an image URL
+                  <input
+                    type="url"
+                    maxLength={2000}
+                    value={productForm.image_url}
+                    onChange={(e) =>
+                      updateProductField("image_url", e.target.value)
+                    }
+                    placeholder="https://example.com/image.jpg"
+                  />
+                </label>
+              </div>
+
+              <label className="am-full-field">
+                Description
+                <textarea
+                  rows="4"
+                  maxLength={5000}
+                  value={productForm.description}
+                  onChange={(e) =>
+                    updateProductField("description", e.target.value)
+                  }
+                  placeholder="Describe this product..."
+                />
+              </label>
+
+              <label className="am-full-field">
+                Specifications (JSON format)
+                <textarea
+                  rows="5"
+                  value={productForm.specifications}
+                  onChange={(e) =>
+                    updateProductField("specifications", e.target.value)
+                  }
+                  placeholder={'{\n  "display": "6.88-inch",\n  "battery": "5160mAh"\n}'}
+                />
+                <small>Enter specifications as a valid JSON object.</small>
+              </label>
+            </div>
+
+            <div className="am-form-actions">
+              <button
+                type="button"
+                className="am-cancel-button"
+                onClick={() => setShowProductForm(false)}
+                disabled={saving || uploading}
+              >
+                Cancel
+              </button>
+
+              <button
+                className="am-primary"
+                disabled={saving || uploading}
+              >
+                {uploading
+                  ? "Uploading..."
+                  : saving
+                    ? "Saving..."
+                    : editingProduct
+                      ? "Save changes"
+                      : "Add product"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </main>
   );
 }
-
-function Metric({ label, value, icon, note }) {
-  return (
-    <article className="am-metric">
-      <div className="am-metric-top">
-        <span>{label}</span>
-        <span className="am-metric-icon">{icon}</span>
-      </div>
-      <strong className="am-metric-value">{value ?? "—"}</strong>
-      <small>{note}</small>
-    </article>
-  );
-}
-
-function Status({ value }) {
-  const type = String(value || "").toLowerCase();
-
-  return (
-    <span className={`am-status am-status-${type}`}>
-      <span /> {value || "Unknown"}
-    </span>
-  );
-}
-
-const styles = `
-  :global(*) { box-sizing: border-box; }
-  :global(body) { margin: 0; }
-  .am-app {
-    --green: #176b43;
-    --lime: #c8f31e;
-    --ink: #17211b;
-    --muted: #758078;
-    --line: #e8ede8;
-    min-height: 100vh;
-    background: #f5f7f4;
-    color: var(--ink);
-    font-family: Arial, Helvetica, sans-serif;
-    display: flex;
-  }
-  .am-sidebar {
-    width: 245px;
-    flex-shrink: 0;
-    min-height: 100vh;
-    background: #10291e;
-    color: #fff;
-    padding: 28px 17px;
-    display: flex;
-    flex-direction: column;
-  }
-  .am-logo { display: flex; align-items: center; gap: 11px; padding: 0 5px 36px; }
-  .am-logo strong { display: block; font-size: 12px; letter-spacing: 1px; }
-  .am-logo small { display: block; margin-top: 5px; font-size: 9px; color: #9cb2a4; letter-spacing: 1px; }
-  .am-brand-mark {
-    width: 39px; height: 39px; border-radius: 12px;
-    background: var(--lime); color: #10291e;
-    display: grid; place-items: center; font-size: 24px; font-weight: 900;
-  }
-  .am-nav-label, .am-eyebrow { font-size: 10px; letter-spacing: 1.7px; font-weight: 700; }
-  .am-nav-label { color: #91a79a; padding-left: 10px; margin-bottom: 12px; }
-  .am-nav {
-    display: flex; align-items: center; gap: 12px; width: 100%;
-    border: 0; border-radius: 9px; padding: 13px 12px; margin-bottom: 6px;
-    text-align: left; color: #c6d4cb; background: transparent; font-size: 13px;
-    cursor: pointer;
-  }
-  .am-nav > span:first-child { font-size: 18px; width: 20px; }
-  .am-nav.selected { background: #244c36; color: var(--lime); }
-  .am-count { margin-left: auto; font-size: 10px; background: #315c43; padding: 4px 7px; border-radius: 10px; }
-  .am-sidebar-bottom { margin-top: auto; }
-  .am-online { color: #c4d7c9; font-size: 11px; padding: 16px 9px; }
-  .am-online span { display: inline-block; width: 7px; height: 7px; background: #6fe3a0; border-radius: 50%; margin-right: 7px; }
-  .am-logout { width: 100%; padding: 12px; text-align: left; border: 1px solid #365545; background: transparent; color: white; border-radius: 9px; }
-  .am-main { flex: 1; min-width: 0; padding: 34px clamp(16px, 4vw, 48px) 20px; }
-  .am-topbar { display: flex; justify-content: space-between; align-items: center; gap: 15px; margin-bottom: 27px; }
-  .am-eyebrow { color: var(--green); margin: 0 0 9px; }
-  .am-topbar h1 { margin: 0; font-size: clamp(25px, 3vw, 34px); letter-spacing: -1px; }
-  .am-refresh { padding: 11px 15px; border: 1px solid #dce5dc; background: white; border-radius: 9px; color: #26382d; }
-  .am-welcome { padding: 28px; border-radius: 15px; color: white; background: #176b43; display: flex; align-items: center; justify-content: space-between; }
-  .am-welcome .am-eyebrow { color: #d5f5a0; }
-  .am-welcome h2 { margin: 0 0 8px; font-size: clamp(21px, 3vw, 29px); letter-spacing: -.7px; }
-  .am-welcome p:last-child { margin: 0; font-size: 12px; color: #d1e5d8; }
-  .am-welcome-icon { font-size: 46px; color: var(--lime); }
-  .am-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin: 18px 0; }
-  .am-metric { min-width: 0; padding: 19px; background: white; border: 1px solid var(--line); border-radius: 12px; }
-  .am-metric-top { display: flex; align-items: center; justify-content: space-between; gap: 7px; font-size: 11px; color: #68756b; }
-  .am-metric-icon { display: grid; place-items: center; width: 31px; height: 31px; border-radius: 9px; background: #eef6e7; color: var(--green); font-size: 17px; }
-  .am-metric-value { display: block; margin: 19px 0 7px; font-size: clamp(19px, 2vw, 27px); overflow-wrap: anywhere; }
-  .am-metric small, .am-muted, .am-small { color: var(--muted); font-size: 11px; }
-  .am-columns { display: grid; grid-template-columns: 1.5fr 1fr; gap: 17px; margin-top: 18px; }
-  .am-panel { min-width: 0; background: white; border: 1px solid var(--line); border-radius: 13px; padding: 21px; margin-bottom: 18px; }
-  .am-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 19px; }
-  .am-panel-heading h3 { font-size: 15px; margin: 0 0 6px; }
-  .am-panel-heading p { margin: 0; color: var(--muted); font-size: 11px; }
-  .am-text-button { border: 0; background: transparent; color: var(--green); font-size: 12px; font-weight: 700; }
-  .am-order-row { display: flex; align-items: center; gap: 11px; padding: 13px 0; border-top: 1px solid #f0f2ef; }
-  .am-order-avatar { flex-shrink: 0; width: 35px; height: 35px; display: grid; place-items: center; border-radius: 10px; background: #eef4e9; color: var(--green); font-weight: 700; }
-  .am-order-details { flex: 1; min-width: 0; }
-  .am-order-details strong, .am-order-details small, .am-order-total strong { display: block; }
-  .am-order-details strong, .am-order-total strong { font-size: 11px; }
-  .am-order-details small { color: var(--muted); font-size: 10px; margin-top: 5px; overflow-wrap: anywhere; }
-  .am-order-total { text-align: right; }
-  .am-order-total .am-status { margin-top: 6px; }
-  .am-stock-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 15px 0; border-top: 1px solid #f0f2ef; }
-  .am-stock-row strong, .am-stock-row small { display: block; font-size: 11px; }
-  .am-stock-row small { color: var(--muted); margin-top: 5px; }
-  .am-low-stock { padding: 6px 8px; background: #fff1dc; color: #9b5d00; border-radius: 7px; font-size: 10px; white-space: nowrap; }
-  .am-status { display: inline-flex; align-items: center; gap: 5px; padding: 5px 7px; border-radius: 6px; background: #edf4ee; color: #24623e; font-size: 10px; white-space: nowrap; }
-  .am-status > span { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
-  .am-status-pending { background: #fff2d9; color: #966000; }
-  .am-status-cancelled, .am-status-inactive { background: #fce9e7; color: #a23831; }
-  .am-status-processing, .am-status-confirmed, .am-status-shipped { background: #e8f0ff; color: #315da4; }
-  .am-table-wrap { width: 100%; overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; text-align: left; }
-  th { padding: 12px 10px; font-size: 9px; letter-spacing: .7px; color: #758078; background: #f8faf7; }
-  td { padding: 15px 10px; border-bottom: 1px solid #edf0ec; font-size: 11px; vertical-align: top; }
-  td strong, td small { display: block; min-width: 95px; overflow-wrap: anywhere; }
-  td small { color: var(--muted); margin-top: 5px; font-size: 10px; }
-  .am-status-select { max-width: 130px; padding: 8px; border: 1px solid #dce5dc; background: white; border-radius: 7px; font-size: 11px; }
-  .am-empty { padding: 20px 0; color: var(--muted); font-size: 12px; }
-  .am-footer { display: flex; justify-content: space-between; gap: 12px; color: #8a948c; font-size: 9px; padding: 18px 0 5px; }
-  .am-alert, .am-success { padding: 12px 14px; margin: 12px 0; border-radius: 8px; font-size: 12px; overflow-wrap: anywhere; }
-  .am-alert { color: #9d302b; background: #ffefed; }
-  .am-success { color: #1d693f; background: #e9f7ed; }
-  .am-login { min-height: 100vh; padding: 20px; display: grid; place-items: center; background: #10291e; font-family: Arial, Helvetica, sans-serif; }
-  .am-login-card { width: min(100%, 400px); background: white; padding: 32px; border-radius: 17px; }
-  .am-login-card .am-brand-mark { margin-bottom: 22px; }
-  .am-login-card h1 { margin: 0 0 9px; font-size: 29px; letter-spacing: -1px; }
-  .am-muted { line-height: 1.6; }
-  .am-login-card label { display: block; margin-top: 19px; font-size: 12px; font-weight: 700; }
-  .am-login-card input { width: 100%; margin-top: 8px; padding: 13px; border: 1px solid #dce5dc; border-radius: 8px; font: inherit; font-size: 14px; }
-  .am-primary { width: 100%; padding: 14px; margin-top: 23px; border: 0; border-radius: 8px; background: #176b43; color: white; font-weight: 700; }
-  .am-primary:disabled, .am-refresh:disabled { opacity: .6; }
-  .am-login-card .am-small { text-align: center; line-height: 1.6; margin-top: 18px; }
-  @media (max-width: 1000px) {
-    .am-sidebar { width: 205px; }
-    .am-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .am-columns { grid-template-columns: 1fr; }
-  }
-  @media (max-width: 650px) {
-    .am-app { display: block; }
-    .am-sidebar { width: 100%; min-height: auto; padding: 13px 14px; }
-    .am-logo { padding: 0 2px 14px; }
-    .am-nav-label, .am-sidebar-bottom { display: none; }
-    .am-sidebar { flex-direction: row; flex-wrap: wrap; align-items: center; }
-    .am-logo { width: 100%; }
-    .am-nav { width: auto; flex: 1; justify-content: center; gap: 6px; padding: 10px 5px; font-size: 11px; margin: 0 2px; }
-    .am-nav > span:first-child { width: auto; }
-    .am-main { padding: 22px 13px 15px; }
-    .am-welcome { padding: 20px; }
-    .am-metrics { gap: 9px; }
-    .am-metric { padding: 13px; }
-    .am-metric-top { font-size: 10px; }
-    .am-metric-value { margin-top: 13px; }
-    .am-panel { padding: 14px; }
-    .am-footer { font-size: 8px; }
-    .am-login-card { padding: 24px; }
-  }
-`;
-
