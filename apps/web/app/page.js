@@ -110,17 +110,29 @@ export default function Home() {
   }, []);
 
   const price = Number(featuredProduct?.price ?? 1550);
-  const productName = featuredProduct
-    ? `${featuredProduct.brand || ""} ${featuredProduct.name}`.trim()
-    : "Xiaomi Redmi 14C";
+  const productName = (() => {
+    const brand = (featuredProduct?.brand || "").trim();
+    const name = (featuredProduct?.name || "Redmi 14C").trim();
+
+    return brand && name.toLowerCase().startsWith(brand.toLowerCase())
+      ? name
+      : `${brand} ${name}`.trim();
+  })();
   const productId = Number(featuredProduct?.id ?? 1);
   const productImage = featuredProduct?.image_url || "";
 
   const orderProductData = selectedProduct || featuredProduct;
   const orderPrice = Number(orderProductData?.price ?? price);
-  const orderProductName = orderProductData
-    ? `${orderProductData.brand || ""} ${orderProductData.name}`.trim()
-    : productName;
+  const orderProductName = (() => {
+    if (!orderProductData) return productName;
+
+    const brand = (orderProductData.brand || "").trim();
+    const name = (orderProductData.name || "").trim();
+
+    return brand && name.toLowerCase().startsWith(brand.toLowerCase())
+      ? name
+      : `${brand} ${name}`.trim();
+  })();
   const orderProductId = Number(orderProductData?.id ?? productId);
 
   function chooseProduct(product) {
@@ -186,7 +198,7 @@ trackMetaEvent("Purchase", {
   num_items: Number(order.quantity)
 });
       const message = [
-        "Hello Arthur's Mall! I'd like to confirm my order.",
+        "Hello Arthur Mall! I'd like to confirm my order.",
         "",
         "Order ID: " + order.id,
         "Product: " + order.product,
@@ -266,7 +278,7 @@ trackMetaEvent("Purchase", {
 
           <p className="hero-description">
             Discover quality technology at prices that make sense.
-            Shop confidently with Arthur's Mall.
+            Shop confidently with Arthur Mall.
           </p>
 
           <div className="hero-actions">
@@ -275,7 +287,7 @@ trackMetaEvent("Purchase", {
             </a>
 
             <a href="#benefits" className="text-link">
-              Why Arthur's Mall? <span>↓</span>
+              Why Arthur Mall? <span>↓</span>
             </a>
           </div>
 
@@ -470,7 +482,11 @@ trackMetaEvent("Purchase", {
         {products.length > 0 ? (
           <div className="catalogue-grid">
             {products.map((product) => {
-              const name = `${product.brand || ""} ${product.name || ""}`.trim();
+              const brand = (product.brand || "").trim();
+              const productName = (product.name || "").trim();
+              const name = brand && productName.toLowerCase().startsWith(brand.toLowerCase())
+                ? productName
+                : `${brand} ${productName}`.trim();
 
               return (
                 <article className="catalogue-card" key={product.id}>
@@ -650,7 +666,7 @@ trackMetaEvent("Purchase", {
 
       <section className="closing-banner">
         <div>
-          <span className="closing-kicker">ARTHUR'S MALL · SMARTER SHOPPING</span>
+          <span className="closing-kicker">ARTHUR MALL · SMARTER SHOPPING</span>
           <h2>Good choices.<br />Better experiences.</h2>
         </div>
         <a href="#order" className="button button-light">
@@ -675,7 +691,7 @@ trackMetaEvent("Purchase", {
           target="_blank"
           rel="noreferrer"
           onClick={() => trackMetaEvent("Contact", {
-            content_name: "Arthur's Mall WhatsApp",
+            content_name: "Arthur Mall WhatsApp",
             content_category: "Customer Support"
           })}
         >
@@ -683,19 +699,19 @@ trackMetaEvent("Purchase", {
         </a>
 
         <div className="footer-bottom">
-          <span>© {new Date().getFullYear()} Arthur's Mall</span>
+          <span>© {new Date().getFullYear()} Arthur Mall</span>
           <span>Made for smarter shopping.</span>
         </div>
       </footer>
 
       <a
         className="whatsapp-float"
-        href={"https://wa.me/" + WHATSAPP_NUMBER + "?text=" + encodeURIComponent("Hello Arthur's Mall! I'd like to make an enquiry about your products.")}
+        href={"https://wa.me/" + WHATSAPP_NUMBER + "?text=" + encodeURIComponent("Hello Arthur Mall! I'd like to make an enquiry about your products.")}
         target="_blank"
         rel="noopener noreferrer"
-        aria-label="Chat with Arthur's Mall on WhatsApp"
+        aria-label="Chat with Arthur Mall on WhatsApp"
         onClick={() => trackMetaEvent("Contact", {
-          content_name: "Arthur's Mall WhatsApp",
+          content_name: "Arthur Mall WhatsApp",
           content_category: "Customer Support"
         })}
       >

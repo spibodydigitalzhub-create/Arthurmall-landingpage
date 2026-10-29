@@ -2019,3 +2019,84 @@ a:focus-visible {
     transform: none;
   }
 }
+
+/* ARTHUR MALL — PRODUCT CONVERSION ENHANCEMENTS */
+
+.product-price {
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 28px;
+}
+
+.product-price strong {
+  font-size: clamp(34px, 4vw, 44px);
+  line-height: 1.1;
+  font-weight: 800;
+  letter-spacing: -1.5px;
+}
+
+.product-price span {
+  font-size: 11px;
+}
+
+.payment-note {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.7;
+  margin-top: 14px;
+  color: #3f5514;
+}
+
+.catalogue-card-bottom {
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.catalogue-card-bottom > strong {
+  display: block;
+  font-size: clamp(24px, 3vw, 32px);
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -1px;
+  color: #171910;
+}
+
+.catalogue-order-button {
+  min-height: 46px;
+}
+
+.catalogue-image-wrap {
+  min-width: 0;
+}
+
+.catalogue-image {
+  max-width: 100%;
+  object-fit: contain;
+}
+
+@media (max-width: 600px) {
+  .product-price {
+    margin-top: 22px;
+  }
+
+  .product-price strong {
+    font-size: 36px;
+  }
+
+  .payment-note {
+    font-size: 12px;
+  }
+
+  .catalogue-card-bottom {
+    align-items: stretch;
+  }
+
+  .catalogue-card-bottom > strong {
+    font-size: 28px;
+    width: 100%;
+  }
+
+  .catalogue-order-button {
+    width: 100%;
+  }
+}
