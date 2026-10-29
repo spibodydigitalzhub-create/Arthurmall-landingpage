@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-
+function trackMetaEvent(eventName, parameters = {}) {
+  if (typeof window !== "undefined" && typeof window.fbq === "function") {
+    window.fbq("track", eventName, parameters);
+  }
+}
 const WHATSAPP_NUMBER = "233570848484";
 const API = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:4000";
 
@@ -36,9 +40,20 @@ export default function Home() {
           available[0];
 
         if (!cancelled && featured) {
-          setFeaturedProduct(featured);
-        }
-      } catch (error) {
+  setFeaturedProduct(featured);
+
+  if (typeof window !== "undefined" &&
+      typeof window.fbq === "function") {
+    window.fbq("track", "ViewContent", {
+      content_ids: [String(featured.id)],
+      content_name: `${featured.brand || ""} ${featured.name}`.trim(),
+      content_type: "product",
+      value: Number(featured.price),
+      currency: "GHS"
+    });
+  }
+}
+     } catch (error) {
         console.error("Product loading failed:", error);
       }
     }
@@ -94,7 +109,14 @@ export default function Home() {
 
   async function orderProduct(event) {
     event.preventDefault();
-
+trackMetaEvent("InitiateCheckout", {
+  content_ids: [String(productId)],
+  content_name: productName,
+  content_type: "product",
+  value: price * Number(quantity),
+  currency: "GHS",
+  num_items: Number(quantity)
+});
     const submitButton = event.currentTarget.querySelector(
       'button[type="submit"]'
     );
@@ -131,7 +153,14 @@ export default function Home() {
       }
 
       const order = result.order;
-
+trackMetaEvent("Purchase", {
+  content_ids: [String(productId)],
+  content_name: productName,
+  content_type: "product",
+  value: Number(order.totalPrice),
+  currency: "GHS",
+  num_items: Number(order.quantity)
+});
       const message = [
         "Hello Arthur's Mall! I'd like to confirm my order.",
         "",
@@ -177,8 +206,8 @@ export default function Home() {
       </div>
 
       <header className="navbar">
-        <a className="brand" href="#">
-          <span className="brand-mark">A</span>
+         <a className="brand" href="#">
+           <span className="brand-mark">A</span>
           <span>
             ARTHUR'S
             <small>MALL</small>
@@ -545,6 +574,10 @@ export default function Home() {
           href={"https://wa.me/" + WHATSAPP_NUMBER}
           target="_blank"
           rel="noreferrer"
+          onClick={() => trackMetaEvent("Contact", {
+            content_name: "Arthur's Mall WhatsApp",
+            content_category: "Customer Support"
+          })}
         >
           Contact us on WhatsApp ↗
         </a>
@@ -561,6 +594,10 @@ export default function Home() {
         target="_blank"
         rel="noopener noreferrer"
         aria-label="Chat with Arthur's Mall on WhatsApp"
+        onClick={() => trackMetaEvent("Contact", {
+          content_name: "Arthur's Mall WhatsApp",
+          content_category: "Customer Support"
+        })}
       >
         <svg
           viewBox="0 0 32 32"
