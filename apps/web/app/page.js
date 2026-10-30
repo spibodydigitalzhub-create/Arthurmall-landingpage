@@ -606,7 +606,7 @@ export default function Home() {
 
         <div className="store-hero-visual">
           <img
-            src="https://mediaserver.responsesource.com/press-release/149441/Buyerinstore.jpg"
+            src="/images/arthur-mall-hero.webp"
             alt="Customer shopping in a phone store"
             className="store-hero-image"
           />
