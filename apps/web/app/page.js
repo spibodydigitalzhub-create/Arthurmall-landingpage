@@ -573,82 +573,59 @@ export default function Home() {
         </a>
       </header>
 
-      <section className="hero-section" id="home">
-        <div className="hero-copy">
-          <span className="eyebrow">
-            YOUR NEXT PHONE STARTS HERE
-          </span>
-
-          <h1>
-            Good tech.
-            <br />
-            <span>Great value.</span>
-          </h1>
-
-          <p className="hero-description">
-            Discover smartphones made for your everyday life.
-            Quality features, fair prices and a simple way to
-            order from the comfort of your home.
-          </p>
-
-          <div className="hero-actions">
-            <a href="#catalogue" className="button-primary">
-              Explore phones <span aria-hidden="true">↗</span>
-            </a>
-            <a href="#benefits" className="text-link">
-              Why shop with us?
-            </a>
-          </div>
-
-          <div className="trust-row">
-            <div className="trust-item">
-              <span className="trust-icon">✓</span>
-              <span>Pay on delivery</span>
-            </div>
-            <div className="trust-item">
-              <span className="trust-icon">✓</span>
-              <span>Free Accra delivery</span>
-            </div>
-          </div>
+      <section className="hero-section order-guide-hero" id="home">
+        <div className="order-guide-heading">
+          <span className="eyebrow">A SIMPLE WAY TO SHOP</span>
+          <h1>HOW TO PLACE <span>YOUR ORDER</span></h1>
+          <p>Ordering your preferred phone is simple!</p>
         </div>
 
-        <div className="hero-visual">
-          <div className="hero-orbit orbit-one" />
-          <div className="hero-orbit orbit-two" />
-
-          <div className="hero-product-card">
-            <span className="hero-card-label">
-              SMART PICKS
-            </span>
-
-            <div className="hero-phone-scene">
-              <div className="hero-phone hero-phone-back">
-                <span className="hero-phone-camera" />
-                <span className="hero-phone-camera" />
-                <span className="hero-phone-camera" />
-              </div>
-              <div className="hero-phone hero-phone-front">
-                <div className="hero-screen-time">09:41</div>
-                <div className="hero-screen-art" />
-              </div>
-            </div>
-
-            <div className="hero-card-footer">
-              <div>
-                <span>SMARTER SHOPPING</span>
-                <strong>Starts right here.</strong>
-              </div>
-              <span className="hero-arrow">↗</span>
-            </div>
-          </div>
-
-          <div className="floating-note">
-            <span className="floating-note-icon">₵</span>
+        <div className="order-guide-grid">
+          <article className="order-guide-step">
+            <span className="guide-step-number">01</span>
             <div>
-              <strong>Great value</strong>
-              <span>Prices you'll love</span>
+              <h3>Select Your Phone</h3>
+              <p>Choose the phone model you wish to purchase from our available collection.</p>
             </div>
-          </div>
+          </article>
+
+          <article className="order-guide-step">
+            <span className="guide-step-number">02</span>
+            <div>
+              <h3>Enter Your Details</h3>
+              <p>Scroll down and provide your name, location and telephone number.</p>
+            </div>
+          </article>
+
+          <article className="order-guide-step">
+            <span className="guide-step-number">03</span>
+            <div>
+              <h3>Provide Your Exact Location</h3>
+              <p>Enter a clear and accurate delivery address to help us locate you easily.</p>
+            </div>
+          </article>
+
+          <article className="order-guide-step">
+            <span className="guide-step-number">04</span>
+            <div>
+              <h3>Click ORDER NOW</h3>
+              <p>Submit your order details directly to us via WhatsApp.</p>
+            </div>
+          </article>
+
+          <article className="order-guide-step">
+            <span className="guide-step-number">05</span>
+            <div>
+              <h3>Confirm Your Order</h3>
+              <p>Check WhatsApp to ensure your order has been successfully received.</p>
+            </div>
+          </article>
+        </div>
+
+        <div className="order-guide-footer">
+          <span>✓</span>
+          Thank you for shopping with Arthur’s Mall!
+          <a href="#catalogue">Explore available phones ↓</a>
         </div>
       </section>
 
