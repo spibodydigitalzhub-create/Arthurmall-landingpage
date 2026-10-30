@@ -3135,3 +3135,53 @@ img {
   }
 }
 
+
+/* PUBLIC STOREFRONT — LARGE PRODUCT IMAGES */
+
+.storefront .product-image-button {
+  height: clamp(340px, 32vw, 400px);
+  padding: 18px;
+  background: #f3f5ed;
+}
+
+.storefront .product-artwork-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  object-fit: contain;
+  object-position: center;
+}
+
+.storefront .product-artwork-placeholder {
+  min-height: 100%;
+}
+
+.storefront .phone-artwork {
+  width: 112px;
+  height: 205px;
+  border-radius: 23px;
+}
+
+.storefront .artwork-label,
+.storefront .artwork-model {
+  font-size: 10px;
+}
+
+@media (max-width: 700px) {
+  .storefront .product-image-button {
+    height: 360px;
+  }
+
+  .storefront .phone-artwork {
+    width: 120px;
+    height: 215px;
+  }
+}
+
+@media (max-width: 420px) {
+  .storefront .product-image-button {
+    height: 330px;
+  }
+}
+

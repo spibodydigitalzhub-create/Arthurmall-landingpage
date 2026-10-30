@@ -1,5 +1,11 @@
+require("dotenv").config({
+  path: require("path").resolve(__dirname, "../.env")
+});
+
 const express = require("express");
 const cors = require("cors");
+const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
 const db = require("./db");
 
 const app = express();
@@ -7,13 +13,6 @@ const PORT = process.env.PORT || 4000;
 
 app.use(cors());
 app.use(express.json({ limit: "20kb" }));
-
-
-// Administrator authentication
-require("dotenv").config();
-
-const jwt = require("jsonwebtoken");
-const bcrypt = require("bcryptjs");
 
 function requireAdmin(req, res, next) {
   const authorization = req.headers.authorization || "";
@@ -28,11 +27,15 @@ function requireAdmin(req, res, next) {
 
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET, {
-      algorithms: ["HS256"]
+      algorithms: ["HS256"],
+      issuer: "arthurs-mall-api",
+      audience: "arthurs-mall-admin"
     });
 
-    if (payload.role !== "admin" ||
-        payload.username !== process.env.ADMIN_USERNAME) {
+    if (
+      payload.role !== "admin" ||
+      payload.username !== process.env.ADMIN_USERNAME
+    ) {
       return res.status(403).json({
         success: false,
         message: "Administrator access denied."
@@ -53,7 +56,62 @@ function requireAdmin(req, res, next) {
   }
 }
 
-app.post("/api/admin/login", (req, res) => {
+function parseSpecifications(value) {
+  try {
+    return typeof value === "string"
+      ? JSON.parse(value || "{}")
+      : value || {};
+  } catch {
+    return {};
+  }
+}
+
+function validId(value) {
+  const id = Number(value);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+function sendError(res, error, message) {
+  console.error(message, error.message);
+  if (!res.headersSent) {
+    res.status(500).json({
+      success: false,
+      message
+    });
+  }
+}
+
+app.get("/", (req, res) => {
+  res.json({
+    success: true,
+    message: "Welcome to Arthur's Mall API",
+    version: "1.0.0"
+  });
+});
+
+app.get("/api/health", async (req, res) => {
+  try {
+    await db.query("SELECT 1");
+    res.json({
+      success: true,
+      status: "online",
+      service: "Arthur's Mall API",
+      database: "connected",
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error("Health check failed:", error.message);
+    res.status(503).json({
+      success: false,
+      status: "unavailable",
+      database: "disconnected"
+    });
+  }
+});
+
+// Administrator authentication
+
+app.post("/api/admin/login", async (req, res) => {
   try {
     const { username, password } = req.body || {};
 
@@ -80,13 +138,11 @@ app.post("/api/admin/login", (req, res) => {
       });
     }
 
-    const usernameMatches = username === process.env.ADMIN_USERNAME;
-    const passwordMatches = bcrypt.compareSync(
-      password,
-      process.env.ADMIN_PASSWORD_HASH
-    );
+    const matches =
+      username === process.env.ADMIN_USERNAME &&
+      bcrypt.compareSync(password, process.env.ADMIN_PASSWORD_HASH);
 
-    if (!usernameMatches || !passwordMatches) {
+    if (!matches) {
       return res.status(401).json({
         success: false,
         message: "Incorrect username or password."
@@ -107,19 +163,17 @@ app.post("/api/admin/login", (req, res) => {
       }
     );
 
-    return res.json({
+    res.json({
       success: true,
       message: "Administrator login successful.",
       token,
       expiresIn: 7200,
-      admin: { username: process.env.ADMIN_USERNAME }
+      admin: {
+        username: process.env.ADMIN_USERNAME
+      }
     });
   } catch (error) {
-    console.error("Admin login error:", error.message);
-    return res.status(500).json({
-      success: false,
-      message: "Unable to sign in."
-    });
+    sendError(res, error, "Unable to sign in.");
   }
 });
 
@@ -130,259 +184,355 @@ app.get("/api/admin/me", requireAdmin, (req, res) => {
   });
 });
 
-app.get("/", (req, res) => {
-  res.json({
-    success: true,
-    message: "Welcome to Arthur's Mall API",
-    version: "1.0.0",
-  });
-});
+// Public product catalogue
 
-app.get("/api/health", (req, res) => {
-  res.json({
-    success: true,
-    status: "online",
-    service: "Arthur's Mall API",
-    timestamp: new Date().toISOString(),
-  });
-});
-
-
-// Protected product management routes
-
-app.get("/api/admin/products", requireAdmin, (req, res) => {
+app.get("/api/products", async (req, res) => {
   try {
-    const products = db.prepare(`
+    const result = await db.query(`
       SELECT id, name, brand, model, description, specifications,
-             price, category, image_url, stock, active, created_at
-      FROM products ORDER BY id DESC
-    `).all().map(product => {
-      let specifications = {};
-      try {
-        specifications = JSON.parse(product.specifications || "{}");
-      } catch {}
-      return { ...product, specifications };
-    });
+             price, category, image_url, images, stock, active, created_at
+      FROM products
+      WHERE active = 1
+      ORDER BY id DESC
+    `);
 
-    res.json({ success: true, count: products.length, products });
+    const products = result.rows.map(product => ({
+      ...product,
+      specifications: parseSpecifications(product.specifications)
+    }));
+
+    res.json({
+      success: true,
+      count: products.length,
+      products
+    });
   } catch (error) {
-    console.error("Admin products error:", error.message);
-    res.status(500).json({ success: false, message: "Unable to retrieve products." });
+    sendError(res, error, "Unable to retrieve products.");
   }
 });
 
-app.post("/api/admin/products", requireAdmin, (req, res) => {
+// Protected product management
+
+app.get("/api/admin/products", requireAdmin, async (req, res) => {
+  try {
+    const result = await db.query(`
+      SELECT id, name, brand, model, description, specifications,
+             price, category, image_url, images, stock, active, created_at
+      FROM products
+      ORDER BY id DESC
+    `);
+
+    const products = result.rows.map(product => ({
+      ...product,
+      specifications: parseSpecifications(product.specifications)
+    }));
+
+    res.json({
+      success: true,
+      count: products.length,
+      products
+    });
+  } catch (error) {
+    sendError(res, error, "Unable to retrieve products.");
+  }
+});
+
+app.post("/api/admin/products", requireAdmin, async (req, res) => {
   try {
     const b = req.body || {};
     const { name, brand, model, price, stock } = b;
 
-    if (typeof name !== "string" || !name.trim() || name.trim().length > 150 ||
-        typeof brand !== "string" || !brand.trim() || brand.trim().length > 80 ||
-        typeof model !== "string" || !model.trim() || model.trim().length > 100) {
+    if (
+      typeof name !== "string" || !name.trim() || name.trim().length > 150 ||
+      typeof brand !== "string" || !brand.trim() || brand.trim().length > 80 ||
+      typeof model !== "string" || !model.trim() || model.trim().length > 100
+    ) {
       return res.status(400).json({
-        success: false, message: "Valid name, brand and model are required."
+        success: false,
+        message: "Valid name, brand and model are required."
       });
     }
 
-    if (!Number.isSafeInteger(price) || price < 0 ||
-        !Number.isSafeInteger(stock) || stock < 0) {
+    if (
+      !Number.isSafeInteger(price) || price < 0 ||
+      !Number.isSafeInteger(stock) || stock < 0
+    ) {
       return res.status(400).json({
-        success: false, message: "Price and stock must be non-negative whole numbers."
+        success: false,
+        message: "Price and stock must be non-negative whole numbers."
       });
     }
 
     const description = b.description === undefined ? "" : b.description;
     const category = b.category === undefined ? "Smartphones" : b.category;
     const imageUrl = b.image_url === undefined ? "" : b.image_url;
-    const specifications = b.specifications === undefined ? {} : b.specifications;
+    const images = b.images === undefined
+      ? (imageUrl ? [imageUrl] : [])
+      : b.images;
 
-    if (typeof description !== "string" || description.length > 5000 ||
-        typeof category !== "string" || category.length > 80 ||
-        typeof imageUrl !== "string" || imageUrl.length > 2000 ||
-        !specifications || typeof specifications !== "object" ||
-        Array.isArray(specifications) ||
-        Buffer.byteLength(JSON.stringify(specifications), "utf8") > 10000) {
+    if (
+      !Array.isArray(images) || images.length > 4 ||
+      images.some(url => typeof url !== "string" ||
+        url.length > 2000 || !/^https:\/\/.+/i.test(url))
+    ) {
       return res.status(400).json({
-        success: false, message: "Invalid description, category, image or specifications."
+        success: false,
+        message: "Provide up to four valid HTTPS image URLs."
       });
     }
 
-    const result = db.prepare(`
+    const gallery = images;
+    const mainImage = gallery[0] || imageUrl;
+    const specs = b.specifications === undefined ? {} : b.specifications;
+
+    if (
+      typeof description !== "string" || description.length > 5000 ||
+      typeof category !== "string" || category.length > 80 ||
+      typeof mainImage !== "string" || mainImage.length > 2000 ||
+      !specs || typeof specs !== "object" || Array.isArray(specs) ||
+      Buffer.byteLength(JSON.stringify(specs), "utf8") > 10000
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid description, category, image or specifications."
+      });
+    }
+
+    const result = await db.query(`
       INSERT INTO products
         (name, brand, model, description, specifications, price,
-         category, image_url, stock, active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-    `).run(
-      name.trim(), brand.trim(), model.trim(), description,
-      JSON.stringify(specifications), price,
-      category.trim() || "Smartphones", imageUrl.trim(), stock
-    );
+         category, image_url, images, stock, active)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1)
+      RETURNING id
+    `, [
+      name.trim(),
+      brand.trim(),
+      model.trim(),
+      description,
+      JSON.stringify(specs),
+      price,
+      category.trim() || "Smartphones",
+      mainImage.trim(),
+      JSON.stringify(gallery),
+      stock
+    ]);
 
     res.status(201).json({
       success: true,
       message: "Product added successfully.",
-      productId: Number(result.lastInsertRowid)
+      productId: result.rows[0].id
     });
   } catch (error) {
-    console.error("Add product error:", error.message);
-    res.status(500).json({ success: false, message: "Unable to add product." });
+    sendError(res, error, "Unable to add product.");
   }
 });
 
-app.put("/api/admin/products/:id", requireAdmin, (req, res) => {
+app.put("/api/admin/products/:id", requireAdmin, async (req, res) => {
   try {
-    const id = Number(req.params.id);
-    if (!Number.isSafeInteger(id) || id < 1) {
-      return res.status(400).json({ success: false, message: "Invalid product ID." });
+    const id = validId(req.params.id);
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid product ID."
+      });
     }
 
-    const current = db.prepare("SELECT * FROM products WHERE id = ?").get(id);
-    if (!current) {
-      return res.status(404).json({ success: false, message: "Product not found." });
+    const found = await db.query(
+      "SELECT * FROM products WHERE id = $1",
+      [id]
+    );
+
+    if (!found.rowCount) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found."
+      });
     }
 
+    const current = found.rows[0];
     const b = req.body || {};
+
     const name = b.name === undefined ? current.name : b.name;
     const brand = b.brand === undefined ? current.brand : b.brand;
     const model = b.model === undefined ? current.model : b.model;
     const description = b.description === undefined ? current.description : b.description;
     const category = b.category === undefined ? current.category : b.category;
     const imageUrl = b.image_url === undefined ? current.image_url : b.image_url;
+    const currentImages = Array.isArray(current.images)
+      ? current.images
+      : (current.image_url ? [current.image_url] : []);
+
+    const images = b.images === undefined ? currentImages : b.images;
+
+    if (
+      !Array.isArray(images) || images.length > 4 ||
+      images.some(url => typeof url !== "string" ||
+        url.length > 2000 || !/^https:\/\/.+/i.test(url))
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Provide up to four valid HTTPS image URLs."
+      });
+    }
+
+    const gallery = images;
+    const mainImage = gallery[0] || imageUrl;
     const price = b.price === undefined ? current.price : b.price;
     const stock = b.stock === undefined ? current.stock : b.stock;
     const specs = b.specifications === undefined
-      ? current.specifications : JSON.stringify(b.specifications);
+      ? parseSpecifications(current.specifications)
+      : b.specifications;
 
-    if (typeof name !== "string" || !name.trim() || name.length > 150 ||
-        typeof brand !== "string" || !brand.trim() || brand.length > 80 ||
-        typeof model !== "string" || !model.trim() || model.length > 100 ||
-        typeof description !== "string" || description.length > 5000 ||
-        typeof category !== "string" || category.length > 80 ||
-        typeof imageUrl !== "string" || imageUrl.length > 2000 ||
-        !Number.isSafeInteger(price) || price < 0 ||
-        !Number.isSafeInteger(stock) || stock < 0) {
+    if (
+      typeof name !== "string" || !name.trim() || name.length > 150 ||
+      typeof brand !== "string" || !brand.trim() || brand.length > 80 ||
+      typeof model !== "string" || !model.trim() || model.length > 100 ||
+      typeof description !== "string" || description.length > 5000 ||
+      typeof category !== "string" || category.length > 80 ||
+      typeof mainImage !== "string" || mainImage.length > 2000 ||
+      !Number.isSafeInteger(price) || price < 0 ||
+      !Number.isSafeInteger(stock) || stock < 0 ||
+      !specs || typeof specs !== "object" || Array.isArray(specs) ||
+      Buffer.byteLength(JSON.stringify(specs), "utf8") > 10000
+    ) {
       return res.status(400).json({
-        success: false, message: "One or more product fields are invalid."
+        success: false,
+        message: "One or more product fields are invalid."
       });
     }
 
-    if (b.specifications !== undefined &&
-        (!b.specifications || typeof b.specifications !== "object" ||
-         Array.isArray(b.specifications) ||
-         Buffer.byteLength(specs, "utf8") > 10000)) {
-      return res.status(400).json({
-        success: false, message: "Specifications must be a JSON object under 10 KB."
-      });
-    }
-
-    db.prepare(`
-      UPDATE products SET name = ?, brand = ?, model = ?, description = ?,
-        specifications = ?, price = ?, category = ?, image_url = ?, stock = ?
-      WHERE id = ?
-    `).run(name.trim(), brand.trim(), model.trim(), description, specs,
-      price, category.trim() || "Smartphones", imageUrl.trim(), stock, id);
-
-    res.json({ success: true, message: "Product updated successfully." });
-  } catch (error) {
-    console.error("Update product error:", error.message);
-    res.status(500).json({ success: false, message: "Unable to update product." });
-  }
-});
-
-app.patch("/api/admin/products/:id/stock", requireAdmin, (req, res) => {
-  const id = Number(req.params.id);
-  const { stock } = req.body || {};
-
-  if (!Number.isSafeInteger(id) || id < 1 ||
-      !Number.isSafeInteger(stock) || stock < 0) {
-    return res.status(400).json({
-      success: false, message: "Provide a valid product ID and stock quantity."
-    });
-  }
-
-  const result = db.prepare("UPDATE products SET stock = ? WHERE id = ?").run(stock, id);
-  if (Number(result.changes) !== 1) {
-    return res.status(404).json({ success: false, message: "Product not found." });
-  }
-
-  res.json({ success: true, message: "Inventory updated successfully." });
-});
-
-app.delete("/api/admin/products/:id", requireAdmin, (req, res) => {
-  const id = Number(req.params.id);
-
-  if (!Number.isSafeInteger(id) || id < 1) {
-    return res.status(400).json({ success: false, message: "Invalid product ID." });
-  }
-
-  const result = db.prepare(
-    "UPDATE products SET active = 0 WHERE id = ? AND active = 1"
-  ).run(id);
-
-  if (Number(result.changes) !== 1) {
-    return res.status(404).json({ success: false, message: "Active product not found." });
-  }
-
-  res.json({
-    success: true,
-    message: "Product deactivated. Existing order records are preserved."
-  });
-});
-
-
-// Protected order management
-
-app.get("/api/admin/orders", requireAdmin, (req, res) => {
-  try {
-    const orders = db.prepare(`
-      SELECT
-        o.id,
-        o.customer_name,
-        o.customer_phone,
-        o.delivery_address,
-        o.product_id,
-        o.quantity,
-        o.unit_price,
-        o.total_price,
-        o.payment_method,
-        o.status,
-        o.created_at,
-        p.name AS product_name,
-        p.brand AS product_brand,
-        p.model AS product_model
-      FROM orders o
-      LEFT JOIN products p ON p.id = o.product_id
-      ORDER BY o.id DESC
-    `).all();
+    await db.query(`
+      UPDATE products
+      SET name = $1, brand = $2, model = $3, description = $4,
+          specifications = $5, price = $6, category = $7,
+          image_url = $8, images = $9::jsonb, stock = $10
+      WHERE id = $11
+    `, [
+      name.trim(),
+      brand.trim(),
+      model.trim(),
+      description,
+      JSON.stringify(specs),
+      price,
+      category.trim() || "Smartphones",
+      mainImage.trim(),
+      JSON.stringify(gallery),
+      stock,
+      id
+    ]);
 
     res.json({
       success: true,
-      count: orders.length,
-      orders
+      message: "Product updated successfully."
     });
   } catch (error) {
-    console.error("Admin orders error:", error.message);
-    res.status(500).json({
-      success: false,
-      message: "Unable to retrieve orders."
-    });
+    sendError(res, error, "Unable to update product.");
   }
 });
 
-app.patch("/api/admin/orders/:id/status", requireAdmin, (req, res) => {
-  const id = Number(req.params.id);
+app.patch("/api/admin/products/:id/stock", requireAdmin, async (req, res) => {
+  try {
+    const id = validId(req.params.id);
+    const { stock } = req.body || {};
+
+    if (!id || !Number.isSafeInteger(stock) || stock < 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Provide a valid product ID and stock quantity."
+      });
+    }
+
+    const result = await db.query(
+      "UPDATE products SET stock = $1 WHERE id = $2",
+      [stock, id]
+    );
+
+    if (!result.rowCount) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found."
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Inventory updated successfully."
+    });
+  } catch (error) {
+    sendError(res, error, "Unable to update inventory.");
+  }
+});
+
+app.delete("/api/admin/products/:id", requireAdmin, async (req, res) => {
+  try {
+    const id = validId(req.params.id);
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid product ID."
+      });
+    }
+
+    const result = await db.query(`
+      UPDATE products SET active = 0
+      WHERE id = $1 AND active = 1
+    `, [id]);
+
+    if (!result.rowCount) {
+      return res.status(404).json({
+        success: false,
+        message: "Active product not found."
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Product deactivated. Existing order records are preserved."
+    });
+  } catch (error) {
+    sendError(res, error, "Unable to deactivate product.");
+  }
+});
+
+// Protected order management
+
+app.get("/api/admin/orders", requireAdmin, async (req, res) => {
+  try {
+    const result = await db.query(`
+      SELECT o.id, o.customer_name, o.customer_phone,
+             o.delivery_address, o.product_id, o.quantity,
+             o.unit_price, o.total_price, o.payment_method,
+             o.status, o.created_at,
+             p.name AS product_name,
+             p.brand AS product_brand,
+             p.model AS product_model
+      FROM orders o
+      LEFT JOIN products p ON p.id = o.product_id
+      ORDER BY o.id DESC
+    `);
+
+    res.json({
+      success: true,
+      count: result.rows.length,
+      orders: result.rows
+    });
+  } catch (error) {
+    sendError(res, error, "Unable to retrieve orders.");
+  }
+});
+
+app.patch("/api/admin/orders/:id/status", requireAdmin, async (req, res) => {
+  const id = validId(req.params.id);
   const { status } = req.body || {};
 
   const allowedStatuses = [
-    "Pending",
-    "Confirmed",
-    "Processing",
-    "Shipped",
-    "Delivered",
-    "Cancelled"
+    "Pending", "Confirmed", "Processing",
+    "Shipped", "Delivered", "Cancelled"
   ];
 
-  if (!Number.isSafeInteger(id) || id < 1) {
+  if (!id) {
     return res.status(400).json({
       success: false,
       message: "Invalid order ID."
@@ -396,67 +546,66 @@ app.patch("/api/admin/orders/:id/status", requireAdmin, (req, res) => {
     });
   }
 
+  let client;
+
   try {
-    db.exec("BEGIN IMMEDIATE");
+    client = await db.connect();
+    await client.query("BEGIN");
 
-    try {
-      const order = db.prepare(`
-        SELECT id, product_id, quantity, status
-        FROM orders
-        WHERE id = ?
-      `).get(id);
+    const found = await client.query(`
+      SELECT id, product_id, quantity, status
+      FROM orders
+      WHERE id = $1
+      FOR UPDATE
+    `, [id]);
 
-      if (!order) {
-        db.exec("ROLLBACK");
-        return res.status(404).json({
-          success: false,
-          message: "Order not found."
-        });
-      }
-
-      if (order.status === "Cancelled") {
-        db.exec("ROLLBACK");
-        return res.status(409).json({
-          success: false,
-          message: "Cancelled orders cannot be changed."
-        });
-      }
-
-      if (order.status === "Delivered" && status !== "Delivered") {
-        db.exec("ROLLBACK");
-        return res.status(409).json({
-          success: false,
-          message: "Delivered orders cannot be changed."
-        });
-      }
-
-      if (order.status === "Shipped" && status === "Cancelled") {
-        db.exec("ROLLBACK");
-        return res.status(409).json({
-          success: false,
-          message: "A shipped order cannot be cancelled here. Resolve its delivery first."
-        });
-      }
-
-      if (status === "Cancelled" && order.status !== "Cancelled") {
-        db.prepare(`
-          UPDATE products
-          SET stock = stock + ?
-          WHERE id = ?
-        `).run(order.quantity, order.product_id);
-      }
-
-      db.prepare(`
-        UPDATE orders
-        SET status = ?
-        WHERE id = ?
-      `).run(status, id);
-
-      db.exec("COMMIT");
-    } catch (error) {
-      db.exec("ROLLBACK");
-      throw error;
+    if (!found.rowCount) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({
+        success: false,
+        message: "Order not found."
+      });
     }
+
+    const order = found.rows[0];
+
+    if (order.status === "Cancelled") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        success: false,
+        message: "Cancelled orders cannot be changed."
+      });
+    }
+
+    if (order.status === "Delivered" && status !== "Delivered") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        success: false,
+        message: "Delivered orders cannot be changed."
+      });
+    }
+
+    if (order.status === "Shipped" && status === "Cancelled") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        success: false,
+        message: "A shipped order cannot be cancelled here. Resolve its delivery first."
+      });
+    }
+
+    if (status === "Cancelled") {
+      await client.query(`
+        UPDATE products
+        SET stock = stock + $1
+        WHERE id = $2
+      `, [order.quantity, order.product_id]);
+    }
+
+    await client.query(`
+      UPDATE orders SET status = $1 WHERE id = $2
+    `, [status, id]);
+
+    await client.query("COMMIT");
 
     res.json({
       success: true,
@@ -464,245 +613,211 @@ app.patch("/api/admin/orders/:id/status", requireAdmin, (req, res) => {
       order: { id, status }
     });
   } catch (error) {
-    console.error("Update order status error:", error.message);
-    res.status(500).json({
-      success: false,
-      message: "Unable to update order status."
-    });
+    if (client) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {}
+    }
+
+    sendError(res, error, "Unable to update order status.");
+  } finally {
+    if (client) client.release();
   }
 });
 
-app.get("/api/admin/stats", requireAdmin, (req, res) => {
-  try {
-    const products = db.prepare(`
-      SELECT
-        COUNT(*) AS total_products,
-        COALESCE(SUM(CASE WHEN active = 1 THEN 1 ELSE 0 END), 0) AS active_products,
-        COALESCE(SUM(CASE WHEN active = 1 THEN stock ELSE 0 END), 0) AS units_in_stock,
-        COALESCE(SUM(CASE WHEN active = 1 AND stock <= 5 THEN 1 ELSE 0 END), 0) AS low_stock
-      FROM products
-    `).get();
+// Dashboard statistics
 
-    const orders = db.prepare(`
-      SELECT
-        COUNT(*) AS total_orders,
-        COALESCE(SUM(CASE WHEN status = 'Pending' THEN 1 ELSE 0 END), 0) AS pending_orders,
-        COALESCE(SUM(CASE WHEN status = 'Delivered' THEN 1 ELSE 0 END), 0) AS delivered_orders,
-        COALESCE(SUM(CASE WHEN status = 'Cancelled' THEN 1 ELSE 0 END), 0) AS cancelled_orders,
-        COALESCE(SUM(CASE WHEN status = 'Delivered' THEN total_price ELSE 0 END), 0) AS delivered_sales
-      FROM orders
-    `).get();
+app.get("/api/admin/stats", requireAdmin, async (req, res) => {
+  try {
+    const [productsResult, ordersResult] = await Promise.all([
+      db.query(`
+        SELECT
+          COUNT(*)::int AS total_products,
+          COUNT(*) FILTER (WHERE active = 1)::int AS active_products,
+          COALESCE(SUM(stock) FILTER (WHERE active = 1), 0)::int AS units_in_stock,
+          COUNT(*) FILTER (WHERE active = 1 AND stock <= 5)::int AS low_stock
+        FROM products
+      `),
+      db.query(`
+        SELECT
+          COUNT(*)::int AS total_orders,
+          COUNT(*) FILTER (WHERE status = 'Pending')::int AS pending_orders,
+          COUNT(*) FILTER (WHERE status = 'Delivered')::int AS delivered_orders,
+          COUNT(*) FILTER (WHERE status = 'Cancelled')::int AS cancelled_orders,
+          COALESCE(SUM(total_price) FILTER (WHERE status = 'Delivered'), 0)::int AS delivered_sales
+        FROM orders
+      `)
+    ]);
 
     res.json({
       success: true,
-      stats: { ...products, ...orders, currency: "GHS" }
+      stats: {
+        ...productsResult.rows[0],
+        ...ordersResult.rows[0],
+        currency: "GHS"
+      }
     });
   } catch (error) {
-    console.error("Admin stats error:", error.message);
-    res.status(500).json({
-      success: false,
-      message: "Unable to retrieve dashboard statistics."
-    });
+    sendError(res, error, "Unable to retrieve dashboard statistics.");
   }
 });
 
-app.get("/api/products", (req, res) => {
-  try {
-    const products = db.prepare(`
-      SELECT
-        id,
-        name,
-        brand,
-        model,
-        description,
-        specifications,
-        price,
-        category,
-        image_url,
-        stock,
-        active,
-        created_at
-      FROM products
-      WHERE active = 1
-      ORDER BY id DESC
-    `).all();
+// Customer order creation
 
-    const formattedProducts = products.map((product) => ({
-      ...product,
-      specifications: (() => {
-        try {
-          return JSON.parse(product.specifications || "{}");
-        } catch {
-          return {};
-        }
-      })(),
-    }));
+app.post("/api/orders", async (req, res) => {
+  const {
+    customerName,
+    customerPhone,
+    deliveryAddress,
+    productId,
+    quantity
+  } = req.body || {};
 
-    res.json({
-      success: true,
-      count: formattedProducts.length,
-      products: formattedProducts,
-    });
-  } catch (error) {
-    console.error("Products error:", error.message);
-    res.status(500).json({
+  if (
+    typeof customerName !== "string" ||
+    customerName.trim().length < 2 ||
+    customerName.trim().length > 100
+  ) {
+    return res.status(400).json({
       success: false,
-      message: "Unable to retrieve products.",
+      message: "Enter a valid customer name."
     });
   }
-});
 
-app.post("/api/orders", (req, res) => {
+  if (
+    typeof customerPhone !== "string" ||
+    !/^[+0-9()\-\s]{7,20}$/.test(customerPhone.trim())
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: "Enter a valid phone number."
+    });
+  }
+
+  if (
+    typeof deliveryAddress !== "string" ||
+    deliveryAddress.trim().length < 5 ||
+    deliveryAddress.trim().length > 300
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: "Enter a valid delivery address."
+    });
+  }
+
+  if (
+    !Number.isSafeInteger(productId) ||
+    productId < 1 ||
+    !Number.isSafeInteger(quantity) ||
+    quantity < 1 ||
+    quantity > 10
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid product or quantity. Quantity must be 1–10."
+    });
+  }
+
+  let client;
+
   try {
-    const {
-      customerName,
-      customerPhone,
-      deliveryAddress,
-      productId,
-      quantity,
-    } = req.body || {};
+    client = await db.connect();
+    await client.query("BEGIN");
 
-    if (
-      typeof customerName !== "string" ||
-      customerName.trim().length < 2 ||
-      customerName.trim().length > 100
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Enter a valid customer name.",
-      });
-    }
-
-    if (
-      typeof customerPhone !== "string" ||
-      !/^[+0-9()\-\s]{7,20}$/.test(customerPhone.trim())
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Enter a valid phone number.",
-      });
-    }
-
-    if (
-      typeof deliveryAddress !== "string" ||
-      deliveryAddress.trim().length < 5 ||
-      deliveryAddress.trim().length > 300
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Enter a valid delivery address.",
-      });
-    }
-
-    if (
-      !Number.isSafeInteger(productId) ||
-      productId < 1 ||
-      !Number.isSafeInteger(quantity) ||
-      quantity < 1 ||
-      quantity > 10
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid product or quantity. Quantity must be 1–10.",
-      });
-    }
-
-    const product = db.prepare(`
+    const productResult = await client.query(`
       SELECT id, name, price, stock
       FROM products
-      WHERE id = ? AND active = 1
-    `).get(productId);
+      WHERE id = $1 AND active = 1
+      FOR UPDATE
+    `, [productId]);
 
-    if (!product) {
+    if (!productResult.rowCount) {
+      await client.query("ROLLBACK");
       return res.status(404).json({
         success: false,
-        message: "Product not found.",
+        message: "Product not found."
       });
     }
 
+    const product = productResult.rows[0];
+
     if (product.stock < quantity) {
+      await client.query("ROLLBACK");
       return res.status(409).json({
         success: false,
-        message: "Insufficient stock available.",
+        message: "Insufficient stock available."
       });
     }
 
     const totalPrice = product.price * quantity;
 
     if (!Number.isSafeInteger(totalPrice)) {
+      await client.query("ROLLBACK");
       return res.status(400).json({
         success: false,
-        message: "Order total is invalid.",
+        message: "Order total is invalid."
       });
     }
 
-    db.exec("BEGIN IMMEDIATE");
-
-let orderId;
-
-try {
-  const result = db.prepare(`
-    INSERT INTO orders (
-      customer_name,
-      customer_phone,
-      delivery_address,
-      product_id,
+    const orderResult = await client.query(`
+      INSERT INTO orders (
+        customer_name, customer_phone, delivery_address,
+        product_id, quantity, unit_price, total_price,
+        payment_method, status
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING id
+    `, [
+      customerName.trim(),
+      customerPhone.trim(),
+      deliveryAddress.trim(),
+      product.id,
       quantity,
-      unit_price,
-      total_price
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    customerName.trim(),
-    customerPhone.trim(),
-    deliveryAddress.trim(),
-    product.id,
-    quantity,
-    product.price,
-    totalPrice
-  );
+      product.price,
+      totalPrice,
+      "Pay on delivery",
+      "Pending"
+    ]);
 
-  const stockResult = db.prepare(`
-    UPDATE products
-    SET stock = stock - ?
-    WHERE id = ? AND stock >= ?
-  `).run(quantity, product.id, quantity);
+    await client.query(`
+      UPDATE products
+      SET stock = stock - $1
+      WHERE id = $2
+    `, [quantity, product.id]);
 
-  if (Number(stockResult.changes) !== 1) {
-    throw new Error("Stock changed or insufficient stock.");
-  }
+    await client.query("COMMIT");
 
-  orderId = Number(result.lastInsertRowid);
-
-  db.exec("COMMIT");
-} catch (error) {
-  db.exec("ROLLBACK");
-  throw error;
-}
-
-    return res.status(201).json({
+    res.status(201).json({
       success: true,
       message: "Order received successfully.",
       order: {
-        id: orderId,
+        id: orderResult.rows[0].id,
         product: product.name,
         quantity,
         unitPrice: product.price,
         totalPrice,
         currency: "GHS",
         status: "Pending",
-        paymentMethod: "Pay on delivery",
-      },
+        paymentMethod: "Pay on delivery"
+      }
     });
   } catch (error) {
-    console.error("Create order error:", error.message);
-    res.status(500).json({
-      success: false,
-      message: "Unable to create order. Please try again.",
-    });
+    if (client) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {}
+    }
+
+    sendError(res, error, "Unable to create order. Please try again.");
+  } finally {
+    if (client) client.release();
   }
 });
 
-app.listen(PORT, "0.0.0.0", () => {
+// Start server
+
+const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`Arthur's Mall API running on port ${PORT}`);
 });
+
+module.exports = app;

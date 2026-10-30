@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const API =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -34,13 +34,128 @@ function getProductName(product) {
 }
 
 function ProductArtwork({ product }) {
-  if (product?.image_url) {
+  const images = (
+    Array.isArray(product?.images) && product.images.length
+      ? product.images
+      : product?.image_url
+        ? [product.image_url]
+        : []
+  )
+    .filter((url) => typeof url === "string" && url.trim())
+    .slice(0, 4);
+
+  const [activeImage, setActiveImage] = useState(0);
+  const touchStartX = useRef(null);
+
+  useEffect(() => {
+    setActiveImage(0);
+  }, [product?.id]);
+
+  function handleTouchStart(event) {
+    if (event.touches.length === 1) {
+      touchStartX.current = event.touches[0].clientX;
+    }
+  }
+
+  function handleTouchEnd(event) {
+    if (touchStartX.current === null) return;
+
+    const endX = event.changedTouches[0]?.clientX;
+    const distance = endX - touchStartX.current;
+
+    touchStartX.current = null;
+
+    if (Math.abs(distance) < 45 || images.length < 2) return;
+
+    setActiveImage((current) => {
+      if (distance < 0) {
+        return (current + 1) % images.length;
+      }
+
+      return (current - 1 + images.length) % images.length;
+    });
+  }
+
+  if (images.length > 0) {
+    const safeIndex = Math.min(activeImage, images.length - 1);
+
     return (
-      <img
-        src={product.image_url}
-        alt={getProductName(product)}
-        className="product-artwork-image"
-      />
+      <div
+        className="product-gallery"
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        onTouchCancel={() => {
+          touchStartX.current = null;
+        }}
+        style={{
+          width: "100%",
+          height: "100%",
+          minWidth: 0,
+          position: "relative",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          touchAction: "pan-y",
+        }}
+      >
+        <img
+          src={images[safeIndex]}
+          alt={`${getProductName(product)} - image ${safeIndex + 1}`}
+          className="product-artwork-image"
+          draggable="false"
+        />
+
+        {images.length > 1 && (
+          <div
+            aria-label={`Image ${safeIndex + 1} of ${images.length}`}
+            style={{
+              position: "absolute",
+              bottom: "8px",
+              left: "50%",
+              transform: "translateX(-50%)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "7px",
+              padding: "6px 10px",
+              borderRadius: "20px",
+              background: "rgba(0,0,0,0.48)",
+            }}
+          >
+            {images.map((_, index) => (
+              <span
+                key={index}
+                style={{
+                  display: "block",
+                  width: index === safeIndex ? "17px" : "7px",
+                  height: "7px",
+                  borderRadius: "10px",
+                  background: index === safeIndex ? "#c8f31e" : "#ffffff",
+                  transition: "width 180ms ease",
+                }}
+              />
+            ))}
+          </div>
+        )}
+
+        {images.length > 1 && (
+          <span
+            style={{
+              position: "absolute",
+              right: "10px",
+              bottom: "10px",
+              fontSize: "10px",
+              color: "#fff",
+              background: "rgba(0,0,0,0.48)",
+              borderRadius: "12px",
+              padding: "5px 8px",
+            }}
+          >
+            Swipe to view
+          </span>
+        )}
+      </div>
     );
   }
 
