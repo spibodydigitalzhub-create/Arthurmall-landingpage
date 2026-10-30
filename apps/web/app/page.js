@@ -41,121 +41,277 @@ function ProductArtwork({ product }) {
         ? [product.image_url]
         : []
   )
-    .filter((url) => typeof url === "string" && url.trim())
+    .filter(url => typeof url === "string" && url.trim())
     .slice(0, 4);
 
   const [activeImage, setActiveImage] = useState(0);
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [viewerImage, setViewerImage] = useState(0);
   const touchStartX = useRef(null);
+  const viewerTouchStartX = useRef(null);
 
   useEffect(() => {
     setActiveImage(0);
+    setViewerOpen(false);
+    setViewerImage(0);
   }, [product?.id]);
 
-  function handleTouchStart(event) {
+  useEffect(() => {
+    if (!viewerOpen) return;
+
+    const oldOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    function onKey(event) {
+      if (event.key === "Escape") setViewerOpen(false);
+      if (event.key === "ArrowRight") {
+        setViewerImage(current => (current + 1) % images.length);
+      }
+      if (event.key === "ArrowLeft") {
+        setViewerImage(current => (current - 1 + images.length) % images.length);
+      }
+    }
+
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = oldOverflow;
+    };
+  }, [viewerOpen, images.length]);
+
+  function swipeStart(event, ref) {
     if (event.touches.length === 1) {
-      touchStartX.current = event.touches[0].clientX;
+      ref.current = event.touches[0].clientX;
     }
   }
 
-  function handleTouchEnd(event) {
-    if (touchStartX.current === null) return;
-
-    const endX = event.changedTouches[0]?.clientX;
-    const distance = endX - touchStartX.current;
-
-    touchStartX.current = null;
+  function swipeEnd(event, ref, setter) {
+    if (ref.current === null) return;
+    const distance = event.changedTouches[0].clientX - ref.current;
+    ref.current = null;
 
     if (Math.abs(distance) < 45 || images.length < 2) return;
 
-    setActiveImage((current) => {
-      if (distance < 0) {
-        return (current + 1) % images.length;
-      }
-
-      return (current - 1 + images.length) % images.length;
-    });
+    setter(current => distance < 0
+      ? (current + 1) % images.length
+      : (current - 1 + images.length) % images.length
+    );
   }
 
   if (images.length > 0) {
     const safeIndex = Math.min(activeImage, images.length - 1);
+    const safeViewerIndex = Math.min(viewerImage, images.length - 1);
 
     return (
-      <div
-        className="product-gallery"
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-        onTouchCancel={() => {
-          touchStartX.current = null;
-        }}
-        style={{
-          width: "100%",
-          height: "100%",
-          minWidth: 0,
-          position: "relative",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          touchAction: "pan-y",
-        }}
-      >
-        <img
-          src={images[safeIndex]}
-          alt={`${getProductName(product)} - image ${safeIndex + 1}`}
-          className="product-artwork-image"
-          draggable="false"
-        />
-
-        {images.length > 1 && (
-          <div
-            aria-label={`Image ${safeIndex + 1} of ${images.length}`}
+      <>
+        <div
+          className="product-gallery"
+          onTouchStart={event => swipeStart(event, touchStartX)}
+          onTouchEnd={event => swipeEnd(event, touchStartX, setActiveImage)}
+          onTouchCancel={() => { touchStartX.current = null; }}
+          style={{
+            width: "100%",
+            height: "100%",
+            minWidth: 0,
+            position: "relative",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            touchAction: "pan-y"
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setViewerImage(safeIndex);
+              setViewerOpen(true);
+            }}
+            aria-label={`Enlarge ${getProductName(product)} image`}
             style={{
-              position: "absolute",
-              bottom: "8px",
-              left: "50%",
-              transform: "translateX(-50%)",
+              width: "100%",
+              height: "100%",
+              padding: 0,
+              border: 0,
+              background: "transparent",
+              cursor: "zoom-in"
+            }}
+          >
+            <img
+              src={images[safeIndex]}
+              alt={`${getProductName(product)} - image ${safeIndex + 1}`}
+              className="product-artwork-image"
+              draggable="false"
+            />
+          </button>
+
+          {images.length > 1 && (
+            <div
+              aria-label={`Image ${safeIndex + 1} of ${images.length}`}
+              style={{
+                position: "absolute",
+                bottom: 8,
+                left: "50%",
+                transform: "translateX(-50%)",
+                display: "flex",
+                gap: 7,
+                padding: "6px 10px",
+                borderRadius: 20,
+                background: "rgba(0,0,0,.48)",
+                pointerEvents: "none"
+              }}
+            >
+              {images.map((_, index) => (
+                <span
+                  key={index}
+                  style={{
+                    display: "block",
+                    width: index === safeIndex ? 17 : 7,
+                    height: 7,
+                    borderRadius: 10,
+                    background: index === safeIndex ? "#c8f31e" : "#fff"
+                  }}
+                />
+              ))}
+            </div>
+          )}
+
+          <span style={{
+            position: "absolute",
+            right: 10,
+            bottom: 10,
+            fontSize: 10,
+            color: "#fff",
+            background: "rgba(0,0,0,.48)",
+            borderRadius: 12,
+            padding: "5px 8px",
+            pointerEvents: "none"
+          }}>
+            Tap to enlarge
+          </span>
+        </div>
+
+        {viewerOpen && (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${getProductName(product)} image viewer`}
+            onClick={() => setViewerOpen(false)}
+            onTouchStart={event => swipeStart(event, viewerTouchStartX)}
+            onTouchEnd={event => swipeEnd(event, viewerTouchStartX, setViewerImage)}
+            onTouchCancel={() => { viewerTouchStartX.current = null; }}
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 99999,
+              background: "rgba(0,0,0,.96)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              gap: "7px",
-              padding: "6px 10px",
-              borderRadius: "20px",
-              background: "rgba(0,0,0,0.48)",
+              padding: "65px 16px 70px",
+              touchAction: "pan-y"
             }}
           >
-            {images.map((_, index) => (
-              <span
-                key={index}
-                style={{
-                  display: "block",
-                  width: index === safeIndex ? "17px" : "7px",
-                  height: "7px",
-                  borderRadius: "10px",
-                  background: index === safeIndex ? "#c8f31e" : "#ffffff",
-                  transition: "width 180ms ease",
+            <button
+              type="button"
+              aria-label="Close image viewer"
+              onClick={() => setViewerOpen(false)}
+              style={{
+                position: "absolute",
+                top: 16,
+                right: 18,
+                width: 46,
+                height: 46,
+                border: "1px solid #777",
+                borderRadius: "50%",
+                background: "#222",
+                color: "#fff",
+                fontSize: 28
+              }}
+            >×</button>
+
+            <span style={{
+              position: "absolute",
+              top: 30,
+              left: "50%",
+              transform: "translateX(-50%)",
+              color: "#fff"
+            }}>
+              {safeViewerIndex + 1} / {images.length}
+            </span>
+
+            {images.length > 1 && (
+              <button
+                type="button"
+                aria-label="Previous image"
+                onClick={event => {
+                  event.stopPropagation();
+                  setViewerImage((safeViewerIndex - 1 + images.length) % images.length);
                 }}
-              />
-            ))}
+                style={{
+                  position: "absolute",
+                  left: 10,
+                  top: "50%",
+                  width: 44,
+                  height: 44,
+                  border: 0,
+                  borderRadius: "50%",
+                  background: "#333",
+                  color: "#fff",
+                  fontSize: 28
+                }}
+              >‹</button>
+            )}
+
+            <img
+              src={images[safeViewerIndex]}
+              alt={`${getProductName(product)} - image ${safeViewerIndex + 1}`}
+              onClick={event => event.stopPropagation()}
+              draggable="false"
+              style={{
+                maxWidth: "100%",
+                maxHeight: "100%",
+                width: "auto",
+                height: "auto",
+                objectFit: "contain",
+                userSelect: "none"
+              }}
+            />
+
+            {images.length > 1 && (
+              <button
+                type="button"
+                aria-label="Next image"
+                onClick={event => {
+                  event.stopPropagation();
+                  setViewerImage((safeViewerIndex + 1) % images.length);
+                }}
+                style={{
+                  position: "absolute",
+                  right: 10,
+                  top: "50%",
+                  width: 44,
+                  height: 44,
+                  border: 0,
+                  borderRadius: "50%",
+                  background: "#333",
+                  color: "#fff",
+                  fontSize: 28
+                }}
+              >›</button>
+            )}
+
+            <span style={{
+              position: "absolute",
+              bottom: 20,
+              color: "#ddd",
+              fontSize: 12
+            }}>
+              Swipe or use arrows to view more
+            </span>
           </div>
         )}
-
-        {images.length > 1 && (
-          <span
-            style={{
-              position: "absolute",
-              right: "10px",
-              bottom: "10px",
-              fontSize: "10px",
-              color: "#fff",
-              background: "rgba(0,0,0,0.48)",
-              borderRadius: "12px",
-              padding: "5px 8px",
-            }}
-          >
-            Swipe to view
-          </span>
-        )}
-      </div>
+      </>
     );
   }
 

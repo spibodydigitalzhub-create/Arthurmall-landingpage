@@ -83,6 +83,8 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [previewImages, setPreviewImages] = useState([]);
+  const [imageViewer, setImageViewer] = useState(null);
 
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -94,6 +96,37 @@ export default function AdminPage() {
 
   const [orderSearch, setOrderSearch] = useState("");
   const [productFilter, setProductFilter] = useState("All");
+
+  // ADMIN_IMAGE_VIEWER_KEYBOARD
+  useEffect(() => {
+    if (!imageViewer) return;
+
+    function handleViewerKeys(event) {
+      if (event.key === "Escape") setImageViewer(null);
+      if (event.key === "ArrowRight") {
+        setImageViewer(current => current ? {
+          ...current,
+          index: (current.index + 1) % current.images.length
+        } : null);
+      }
+      if (event.key === "ArrowLeft") {
+        setImageViewer(current => current ? {
+          ...current,
+          index: (current.index - 1 + current.images.length) % current.images.length
+        } : null);
+      }
+    }
+
+    document.addEventListener("keydown", handleViewerKeys);
+    const oldOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.removeEventListener("keydown", handleViewerKeys);
+      document.body.style.overflow = oldOverflow;
+    };
+  }, [imageViewer]);
+
 
   const request = useCallback(
     async (path, options = {}, auth = true) => {
@@ -284,16 +317,11 @@ export default function AdminPage() {
 
     if (!files.length) return;
 
-    const existing = productForm.images || [];
-    const remaining = 4 - existing.length;
+    const existingCount =
+      (productForm.images || []).length;
 
-    if (remaining <= 0) {
-      setError("A product can have a maximum of four images.");
-      return;
-    }
-
-    if (files.length > remaining) {
-      setError(`You can select only ${remaining} more image(s).`);
+    if (existingCount + files.length > 4) {
+      setError("You can add up to four product images.");
       return;
     }
 
@@ -311,9 +339,15 @@ export default function AdminPage() {
       }
     }
 
+    const previews = files.map(file => ({
+      url: URL.createObjectURL(file),
+      name: file.name
+    }));
+
+    setPreviewImages(previews);
     setUploading(true);
     setError("");
-    setNotice("");
+    setNotice("Previewing selected images...");
 
     try {
       const uploaded = [];
@@ -342,7 +376,7 @@ export default function AdminPage() {
         uploaded.push(result.secure_url);
       }
 
-      setProductForm((current) => {
+      setProductForm(current => {
         const nextImages = [
           ...(current.images || []),
           ...uploaded,
@@ -355,10 +389,12 @@ export default function AdminPage() {
         };
       });
 
-      setNotice(`${uploaded.length} product image(s) uploaded successfully.`);
+      setNotice(`${uploaded.length} image(s) uploaded successfully.`);
     } catch (err) {
       setError(err.message);
     } finally {
+      previews.forEach(item => URL.revokeObjectURL(item.url));
+      setPreviewImages([]);
       setUploading(false);
     }
   }
@@ -1123,9 +1159,19 @@ export default function AdminPage() {
                   gap: "12px",
                   marginTop: "12px"
                 }}>
-                  {(productForm.images || []).map((url, index) => (
+                  {[
+                    ...(productForm.images || []).map((url, index) => ({
+                      url,
+                      name: `Image ${index + 1}`,
+                      uploaded: true
+                    })),
+                    ...previewImages.map(item => ({
+                      ...item,
+                      uploaded: false
+                    }))
+                  ].map((item, index) => (
                     <div
-                      key={`${url}-${index}`}
+                      key={`${item.url}-${index}`}
                       style={{
                         position: "relative",
                         minWidth: 0,
@@ -1135,15 +1181,36 @@ export default function AdminPage() {
                         aspectRatio: "1 / 1"
                       }}
                     >
-                      <img
-                        src={url}
-                        alt={`Product image ${index + 1}`}
+                      <button
+                        type="button"
+                        onClick={() => setImageViewer({
+                          images: [
+                            ...(productForm.images || []),
+                            ...previewImages.map(item => item.url)
+                          ],
+                          index
+                        })}
+                        aria-label={`Enlarge product image ${index + 1}`}
                         style={{
+                          display: "block",
                           width: "100%",
                           height: "100%",
-                          objectFit: "contain"
+                          padding: 0,
+                          border: 0,
+                          background: "transparent",
+                          cursor: "zoom-in"
                         }}
-                      />
+                      >
+                        <img
+                          src={item.url}
+                          alt={`Product image ${index + 1}`}
+                          style={{
+                            width: "100%",
+                            height: "100%",
+                            objectFit: "contain"
+                          }}
+                        />
+                      </button>
 
                       <span style={{
                         position: "absolute",
@@ -1155,13 +1222,13 @@ export default function AdminPage() {
                         color: "#fff",
                         fontSize: "11px"
                       }}>
-                        {index === 0 ? "Main image" : `Image ${index + 1}`}
+                        {index === 0 ? "Main image" : `Image ${index + 1}`} {!item.uploaded && "(Preview)"}
                       </span>
 
                       <button
                         type="button"
                         onClick={() => removeProductImage(index)}
-                        disabled={uploading || saving}
+                        disabled={uploading || saving || !item.uploaded}
                         aria-label={`Remove image ${index + 1}`}
                         style={{
                           position: "absolute",
@@ -1182,7 +1249,7 @@ export default function AdminPage() {
                     </div>
                   ))}
 
-                  {(productForm.images || []).length === 0 && (
+                  {(productForm.images || []).length === 0 && previewImages.length === 0 && (
                     <div
                       style={{
                         gridColumn: "1 / -1",
@@ -1197,6 +1264,119 @@ export default function AdminPage() {
                     </div>
                   )}
                 </div>
+
+
+                {/* ADMIN_IMAGE_VIEWER_MODAL */}
+                {imageViewer && imageViewer.images.length > 0 && (
+                  <div
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Product image preview"
+                    onClick={() => setImageViewer(null)}
+                    style={{
+                      position: "fixed",
+                      inset: 0,
+                      zIndex: 100000,
+                      background: "rgba(0,0,0,.94)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      padding: "65px 16px"
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setImageViewer(null)}
+                      aria-label="Close image preview"
+                      style={{
+                        position: "absolute",
+                        top: 16,
+                        right: 18,
+                        width: 46,
+                        height: 46,
+                        border: 0,
+                        borderRadius: "50%",
+                        background: "#fff",
+                        color: "#111",
+                        fontSize: 28,
+                        cursor: "pointer"
+                      }}
+                    >×</button>
+
+                    <span style={{
+                      position: "absolute",
+                      top: 30,
+                      left: "50%",
+                      transform: "translateX(-50%)",
+                      color: "#fff"
+                    }}>
+                      {imageViewer.index + 1} / {imageViewer.images.length}
+                    </span>
+
+                    {imageViewer.images.length > 1 && (
+                      <button
+                        type="button"
+                        aria-label="Previous image"
+                        onClick={event => {
+                          event.stopPropagation();
+                          setImageViewer(current => ({
+                            ...current,
+                            index: (current.index - 1 + current.images.length) % current.images.length
+                          }));
+                        }}
+                        style={{
+                          position: "absolute",
+                          left: 10,
+                          top: "50%",
+                          fontSize: 32,
+                          color: "#fff",
+                          background: "#333",
+                          border: 0,
+                          borderRadius: 30,
+                          width: 44,
+                          height: 44
+                        }}
+                      >‹</button>
+                    )}
+
+                    <img
+                      src={imageViewer.images[imageViewer.index]}
+                      alt="Enlarged product"
+                      onClick={event => event.stopPropagation()}
+                      style={{
+                        maxWidth: "100%",
+                        maxHeight: "100%",
+                        objectFit: "contain"
+                      }}
+                    />
+
+                    {imageViewer.images.length > 1 && (
+                      <button
+                        type="button"
+                        aria-label="Next image"
+                        onClick={event => {
+                          event.stopPropagation();
+                          setImageViewer(current => ({
+                            ...current,
+                            index: (current.index + 1) % current.images.length
+                          }));
+                        }}
+                        style={{
+                          position: "absolute",
+                          right: 10,
+                          top: "50%",
+                          fontSize: 32,
+                          color: "#fff",
+                          background: "#333",
+                          border: 0,
+                          borderRadius: 30,
+                          width: 44,
+                          height: 44
+                        }}
+                      >›</button>
+                    )}
+                  </div>
+                )}
 
                 <label className="am-upload-button">
                   {uploading ? "Uploading images..." : "↑ Choose product images"}
@@ -1214,7 +1394,8 @@ export default function AdminPage() {
                 </label>
 
                 <small>
-                  Select up to four JPG, PNG or WEBP images.
+                  Selected photos appear immediately as previews. Uploads are saved to your product gallery.
+                  <br />Select up to four JPG, PNG or WEBP images.
                   Maximum 5MB per image.
                 </small>
               </div>
