@@ -499,7 +499,7 @@ export default function Home() {
       const orderId =
         order.id || order.orderId || result.orderId || "Pending";
 
-      trackMetaEvent("Purchase", {
+      trackMetaEvent("Lead", {
         content_name: getProductName(selectedProduct),
         content_ids: [String(selectedProduct.id)],
         content_type: "product",
@@ -573,59 +573,91 @@ export default function Home() {
         </a>
       </header>
 
-      <section className="hero-section order-guide-hero" id="home">
-        <div className="order-guide-heading">
-          <span className="eyebrow">A SIMPLE WAY TO SHOP</span>
-          <h1>HOW TO PLACE <span>YOUR ORDER</span></h1>
-          <p>Ordering your preferred phone is simple!</p>
+      <section className="hero-section store-hero" id="home">
+        <div className="store-hero-content">
+          <span className="eyebrow">WELCOME TO ARTHUR'S MALL</span>
+
+          <h1>
+            Smart choices.
+            <br />
+            <span>Better shopping.</span>
+          </h1>
+
+          <p>
+            Discover smartphones that match your lifestyle.
+            Quality products, great value and a shopping experience
+            designed around you.
+          </p>
+
+          <div className="hero-trust-badges">
+            <span>✓ Free delivery within Accra</span>
+            <span>✓ Pay on delivery</span>
+          </div>
+
+          <div className="hero-actions">
+            <a href="#catalogue" className="hero-primary-btn">
+              Explore phones <span>↗</span>
+            </a>
+            <a href="#welcome" className="hero-secondary-btn">
+              Discover Arthur's Mall
+            </a>
+          </div>
         </div>
 
-        <div className="order-guide-grid">
-          <article className="order-guide-step">
-            <span className="guide-step-number">01</span>
-            <div>
-              <h3>Select Your Phone</h3>
-              <p>Choose the phone model you wish to purchase from our available collection.</p>
-            </div>
-          </article>
+        <div className="store-hero-visual">
+          <img
+            src="https://mediaserver.responsesource.com/press-release/149441/Buyerinstore.jpg"
+            alt="Customer shopping in a phone store"
+            className="store-hero-image"
+          />
 
-          <article className="order-guide-step">
-            <span className="guide-step-number">02</span>
-            <div>
-              <h3>Enter Your Details</h3>
-              <p>Scroll down and provide your name, location and telephone number.</p>
-            </div>
-          </article>
+          <div className="hero-floating-note">
+            <span>✓</span>
+            Shop with confidence
+          </div>
+        </div>
+      </section>
 
-          <article className="order-guide-step">
-            <span className="guide-step-number">03</span>
-            <div>
-              <h3>Provide Your Exact Location</h3>
-              <p>Enter a clear and accurate delivery address to help us locate you easily.</p>
-            </div>
-          </article>
+      <section className="welcome-section" id="welcome">
+        <div className="welcome-label">A BETTER WAY TO SHOP</div>
+        <h2>Welcome to <span>Arthur's Mall.</span></h2>
+        <p>
+          Your destination for smartphones and everyday technology.
+          We make shopping simple with carefully selected products,
+          competitive prices and convenient delivery.
+        </p>
+      </section>
 
-          <article className="order-guide-step">
-            <span className="guide-step-number">04</span>
-            <div>
-              <h3>Click ORDER NOW</h3>
-              <p>Submit your order details directly to us via WhatsApp.</p>
-            </div>
-          </article>
-
-          <article className="order-guide-step">
-            <span className="guide-step-number">05</span>
-            <div>
-              <h3>Confirm Your Order</h3>
-              <p>Check WhatsApp to ensure your order has been successfully received.</p>
-            </div>
-          </article>
+      <section className="quick-order-section" id="how-to-order">
+        <div className="quick-order-heading">
+          <span className="eyebrow">THREE SIMPLE STEPS</span>
+          <h2>How to <span>order.</span></h2>
         </div>
 
-        <div className="order-guide-footer">
-          <span>✓</span>
-          Thank you for shopping with Arthur’s Mall!
-          <a href="#catalogue">Explore available phones ↓</a>
+        <div className="quick-order-grid">
+          <article className="quick-order-card">
+            <span>01</span>
+            <div>
+              <h3>Choose your phone</h3>
+              <p>Explore our collection and select your preferred product.</p>
+            </div>
+          </article>
+
+          <article className="quick-order-card">
+            <span>02</span>
+            <div>
+              <h3>Submit your details</h3>
+              <p>Complete the order form with your contact and delivery details.</p>
+            </div>
+          </article>
+
+          <article className="quick-order-card">
+            <span>03</span>
+            <div>
+              <h3>Receive your order</h3>
+              <p>We will contact you to confirm your order and delivery.</p>
+            </div>
+          </article>
         </div>
       </section>
 
@@ -654,6 +686,7 @@ export default function Home() {
           </div>
         </div>
       </section>
+
       <section className="catalogue-section" id="catalogue">
         <div className="section-heading">
           <div>
